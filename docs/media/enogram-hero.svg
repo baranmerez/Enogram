@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="heroTitle heroDescription">
+  <title id="heroTitle">Enogram — see the history, shape the next commit</title>
+  <desc id="heroDescription">Illustrative Windows Git workspace using an example repository. A parent-linked history graph sits beside a diff with a removed line and an added line selected together. The workflow selects changes, stages them in the index, and commits the prepared index. This artwork is not a product screenshot.</desc>
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0c1019"/><stop offset="0.54" stop-color="#100f1c"/><stop offset="1" stop-color="#0c141b"/></linearGradient>
+    <radialGradient id="violet"><stop stop-color="#8960df" stop-opacity="0.25"/><stop offset="1" stop-color="#8960df" stop-opacity="0"/></radialGradient>
+    <radialGradient id="teal"><stop stop-color="#3ba9a0" stop-opacity="0.17"/><stop offset="1" stop-color="#3ba9a0" stop-opacity="0"/></radialGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#292238" stop-opacity="0.94"/><stop offset="0.48" stop-color="#171824" stop-opacity="0.96"/><stop offset="1" stop-color="#14212a" stop-opacity="0.96"/></linearGradient>
+    <linearGradient id="border" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c5b3fa" stop-opacity="0.5"/><stop offset="0.45" stop-color="#82829c" stop-opacity="0.12"/><stop offset="1" stop-color="#8de5da" stop-opacity="0.3"/></linearGradient>
+    <linearGradient id="wordmark" x1="0" y1="0" x2="0.9" y2="1"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#d9cbee"/></linearGradient>
+    <linearGradient id="rail" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#a891ed"/><stop offset="1" stop-color="#7ed7c9"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000" flood-opacity="0.34"/></filter>
+    <clipPath id="frameClip"><rect x="521" y="43" width="631" height="313" rx="17"/></clipPath>
+    <clipPath id="canvasClip"><rect width="1200" height="420" rx="20"/></clipPath>
+  </defs>
+  <g clip-path="url(#canvasClip)" font-family="'Segoe UI', Arial, sans-serif">
+    <rect width="1200" height="420" fill="url(#canvas)"/>
+    <ellipse cx="636" cy="66" rx="480" ry="330" fill="url(#violet)"/>
+    <ellipse cx="1135" cy="365" rx="414" ry="260" fill="url(#teal)"/>
+    <g fill="none" stroke="#a996d9" stroke-opacity="0.075">
+      <path d="M 372 -60 C 612 48 418 308 764 434"/>
+      <path d="M 416 -72 C 658 54 470 305 812 440"/>
+      <path d="M 454 -74 C 704 52 514 300 852 440"/>
+    </g>
+    <path d="M 49 365 H 1151" stroke="#c4bfd9" stroke-opacity="0.1"/>
+
+    <g transform="translate(52 54)" fill="none" stroke="#b8a1f3" stroke-width="2" stroke-linecap="round">
+      <path d="M4 3 V25 M4 14 H17 M4 3 H17 M4 25 H17"/>
+      <circle cx="4" cy="3" r="3" fill="#12111d"/><circle cx="4" cy="25" r="3" fill="#12111d"/>
+      <circle cx="17" cy="14" r="3" fill="#12111d" stroke="#80d4c8"/>
+    </g>
+    <text x="87" y="73" fill="#b1abc4" font-size="11" font-weight="600" letter-spacing="2.2">WINDOWS GIT WORKSPACE</text>
+    <text x="49" y="155" fill="url(#wordmark)" font-size="77" font-weight="650" letter-spacing="-4.6">Enogram</text>
+    <text x="53" y="205" fill="#e2ddef" font-size="27" font-weight="400" letter-spacing="-0.5">See the history.</text>
+    <text x="53" y="240" fill="#e2ddef" font-size="27" font-weight="400" letter-spacing="-0.5">Shape the next commit.</text>
+
+    <rect x="53" y="278" width="116" height="38" rx="19" fill="#b7a0ff" fill-opacity="0.13" stroke="#b7a0ff" stroke-opacity="0.65"/>
+    <circle cx="73" cy="297" r="8" fill="#b7a0ff" fill-opacity="0.83"/>
+    <text x="73" y="300" text-anchor="middle" fill="#171222" font-size="9" font-weight="700">1</text>
+    <text x="90" y="302" fill="#e4dbfa" font-size="13" font-weight="500">Select</text>
+
+    <path d="M176 297 H188" stroke="#6c637e" stroke-width="1.5"/><path d="m184 294 4 3-4 3" fill="none" stroke="#6c637e" stroke-width="1.5"/>
+
+    <rect x="196" y="278" width="116" height="38" rx="19" fill="#b7a0ff" fill-opacity="0" stroke="#b7a0ff" stroke-opacity="0.15"/>
+    <circle cx="216" cy="297" r="8" fill="#b7a0ff" fill-opacity="0.13"/>
+    <text x="216" y="300" text-anchor="middle" fill="#b8aacd" font-size="9" font-weight="700">2</text>
+    <text x="233" y="302" fill="#e4dbfa" font-size="13" font-weight="500">Stage</text>
+
+    <path d="M319 297 H331" stroke="#6c637e" stroke-width="1.5"/><path d="m327 294 4 3-4 3" fill="none" stroke="#6c637e" stroke-width="1.5"/>
+
+    <rect x="339" y="278" width="116" height="38" rx="19" fill="#b7a0ff" fill-opacity="0" stroke="#b7a0ff" stroke-opacity="0.15"/>
+    <circle cx="359" cy="297" r="8" fill="#b7a0ff" fill-opacity="0.13"/>
+    <text x="359" y="300" text-anchor="middle" fill="#b8aacd" font-size="9" font-weight="700">3</text>
+    <text x="376" y="302" fill="#e4dbfa" font-size="13" font-weight="500">Commit</text>
+
+
+    <rect x="521" y="43" width="631" height="313" rx="17" fill="url(#glass)" stroke="url(#border)" filter="url(#shadow)"/>
+    <g clip-path="url(#frameClip)">
+      <path d="M522 87 H1152" stroke="#c2b6dd" stroke-opacity="0.14"/>
+      <path d="M747 87 V356" stroke="#bfb5d5" stroke-opacity="0.12"/>
+      <rect x="748" y="88" width="403" height="268" fill="#0f141e" fill-opacity="0.88"/>
+      <rect x="522" y="44" width="630" height="43" fill="#c8b5f6" fill-opacity="0.035"/>
+      <g transform="translate(542 60)" fill="none" stroke="#b9a6e8" stroke-width="1.3"><path d="M0 3 H7 L10 6 H16 V16 H0 Z"/></g>
+      <text x="568" y="72" fill="#e8e1f5" font-size="13" font-weight="600">example</text>
+      <rect x="641" y="55" width="80" height="22" rx="11" fill="#b39af8" fill-opacity="0.09" stroke="#b39af8" stroke-opacity="0.19"/>
+      <path d="M653 62 V71 M653 67 C659 67 660 66 660 62" fill="none" stroke="#bba6ed" stroke-width="1.2"/>
+      <circle cx="653" cy="62" r="1.5" fill="#bba6ed"/><circle cx="660" cy="61" r="1.5" fill="#bba6ed"/>
+      <text x="668" y="70" fill="#cbb9f3" font-size="10">example</text>
+      <circle cx="1088" cy="66" r="3" fill="#91869f" fill-opacity="0.5"/>
+      <circle cx="1104" cy="66" r="3" fill="#91869f" fill-opacity="0.5"/>
+      <circle cx="1120" cy="66" r="3" fill="#91869f" fill-opacity="0.5"/>
+
+      <text x="543" y="115" fill="#a9a0bb" font-size="9" font-weight="600" letter-spacing="1.2">PARENT-LINKED HISTORY</text>
+      <rect x="535" y="137" width="199" height="39" rx="7" fill="#b39af8" fill-opacity="0.055"/>
+      <g fill="none" stroke-width="2.2" stroke-linecap="round">
+        <path d="M558 156 V276" stroke="#a591d7"/>
+        <path d="M558 196 C558 210 584 214 584 236 C584 256 558 258 558 276" stroke="#74c8bd"/>
+        <path d="M558 276 V318" stroke="#a591d7" stroke-opacity="0.35" stroke-dasharray="3 5"/>
+      </g>
+      <circle cx="558" cy="156" r="10" fill="#b6a0ee" fill-opacity="0.07"/>
+      <g stroke="#141622" stroke-width="3">
+        <circle cx="558" cy="156" r="6.5" fill="#bea8fb"/>
+        <circle cx="558" cy="196" r="6" fill="#a591d7"/>
+        <circle cx="584" cy="236" r="6" fill="#80d6c8"/>
+        <circle cx="558" cy="276" r="6" fill="#a591d7"/>
+      </g>
+      <text x="603" y="153" fill="#e5dfee" font-size="11.5" font-weight="500">Update example</text>
+      <text x="603" y="168" fill="#b6a2de" font-size="9" letter-spacing="0.8">HEAD</text>
+      <text x="603" y="200" fill="#c5bfd3" font-size="11.5">Merge example</text>
+      <text x="603" y="240" fill="#c5bfd3" font-size="11.5">Refine example</text>
+      <text x="603" y="280" fill="#c5bfd3" font-size="11.5">Create example</text>
+      <text x="543" y="337" fill="#928a9f" font-size="10">Connected by Git parent IDs</text>
+
+      <text x="769" y="115" fill="#d5d5e1" font-size="12" font-weight="500">example.ts</text>
+      <rect x="1094" y="101" width="35" height="21" rx="5" fill="#b39af8" fill-opacity="0.13"/>
+      <text x="1111.5" y="115" text-anchor="middle" fill="#c4b4ed" font-size="10" font-weight="600" opacity="1">W</text>
+      <text x="1111.5" y="115" text-anchor="middle" fill="#86dbca" font-size="10" font-weight="600" opacity="0">S</text>
+      <path d="M748 132 H1152" stroke="#b9bdd1" stroke-opacity="0.09"/>
+      <g font-family="Consolas, 'Courier New', monospace" font-size="12">
+        <text x="804" y="158" fill="#687589" text-anchor="end">1</text>
+        <text x="840" y="158" fill="#b6bed1">export const example = {</text>
+        <rect x="765" y="171" width="370" height="29" rx="4" fill="#c98293" fill-opacity="0.1"/>
+        <rect x="765" y="202" width="370" height="29" rx="4" fill="#7cd2ac" fill-opacity="0.1"/>
+        <rect x="765" y="171" width="370" height="60" rx="4" fill="none" stroke="#baa6ef" stroke-opacity="0.52"/>
+        <text x="804" y="190" fill="#a27e91" text-anchor="end">2</text>
+        <text x="824" y="190" fill="#e8a2b1">−</text>
+        <text x="840" y="190" fill="#e0a2af" xml:space="preserve">  example: false,</text>
+        <text x="804" y="221" fill="#7da697" text-anchor="end">2</text>
+        <text x="824" y="221" fill="#91d7b8">+</text>
+        <text x="840" y="221" fill="#91d7b8" xml:space="preserve">  example: true,</text>
+        <text x="804" y="252" fill="#687589" text-anchor="end">3</text>
+        <text x="840" y="252" fill="#b6bed1">};</text>
+      </g>
+      <g stroke="#bca7f3" stroke-width="1.1">
+        <rect x="773" y="181" width="10" height="10" rx="2" fill="#bca7f3" fill-opacity="0.8" stroke-opacity="0.5"/>
+        <rect x="773" y="212" width="10" height="10" rx="2" fill="#bca7f3" fill-opacity="0.8" stroke-opacity="0.5"/>
+      </g>
+      <g fill="none" stroke="#16131f" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="1">
+        <path d="m775 186 2 2 4-4"/><path d="m775 217 2 2 4-4"/>
+      </g>
+      <path d="M768 273 H1133" stroke="#b9bdd1" stroke-opacity="0.09"/>
+      <rect x="768" y="285" width="365" height="39" rx="7" fill="#b39af8" fill-opacity="0.09" stroke="#b39af8" stroke-opacity="0.25"/>
+      <rect x="768" y="285" width="365" height="39" rx="7" fill="#81d7c5" fill-opacity="0" stroke="#81d7c5" stroke-opacity="0"/>
+      <text x="950.5" y="309" text-anchor="middle" fill="#d5c6fb" font-size="12" font-weight="600" opacity="1">Stage selected lines</text>
+      <text x="950.5" y="309" text-anchor="middle" fill="#d5c6fb" font-size="12" font-weight="600" opacity="0">Review the prepared index</text>
+      <text x="950.5" y="309" text-anchor="middle" fill="#9de3d3" font-size="12" font-weight="600" opacity="0">✓  Commit the prepared index</text>
+      <rect x="768" y="339" width="365" height="2" rx="1" fill="#a89fc6" fill-opacity="0.1"/>
+      <rect x="768" y="339" width="89.222" height="2" rx="1" fill="url(#rail)" fill-opacity="0.55"/>
+    </g>
+
+    <g font-size="10.5" fill="#aaa4b8" letter-spacing="0.4">
+      <circle cx="56" cy="390" r="3" fill="#b9a2f0"/>
+      <text x="68" y="394" >FILE · HUNK · LINE</text>
+      <circle cx="235" cy="390" r="3" fill="#84d6c8"/>
+      <text x="247" y="394" >DESKTOP + LOCAL MCP</text>
+    </g>
+    <text x="1150" y="394" text-anchor="end" fill="#938ca4" font-size="10.5">Illustrative workflow · example repository</text>
+    <rect x="0.5" y="0.5" width="1199" height="419" rx="19.5" fill="none" stroke="#b6accb" stroke-opacity="0.12"/>
+  </g>
+</svg>

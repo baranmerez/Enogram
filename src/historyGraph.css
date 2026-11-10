@@ -1,0 +1,120 @@
+.history-graph-list {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-color: var(--scrollbar) transparent;
+  scrollbar-width: thin;
+}
+
+.history-graph-content {
+  position: relative;
+  min-width: calc(var(--history-graph-width) + 330px);
+  isolation: isolate;
+}
+
+.history-graph-svg {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  display: block;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.history-graph-edges,
+.history-graph-boundaries {
+  fill: none;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.history-graph-node-halo { fill: var(--panel); }
+.history-graph-node-ring { fill: var(--panel); stroke-width: 2; }
+.history-graph-node.selected .history-graph-node-halo,
+.history-graph-node.selected .history-graph-node-ring { fill: var(--selection); }
+
+.history-graph-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-graph-rows > li { height: var(--history-row-height); }
+.history-graph-rows > li:nth-child(even) { --history-row-bg: var(--surface-stripe); }
+
+.history-graph-commit {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--history-graph-width) minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0 12px 0 0;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--text);
+  text-align: left;
+  background: var(--history-row-bg, transparent);
+  cursor: pointer;
+}
+
+.history-graph-commit:hover:not(:disabled) { background: var(--surface-hover); }
+.history-graph-commit.selected { color: var(--text); background: var(--selection); box-shadow: inset 2px 0 var(--accent); }
+.history-graph-commit.selected .history-graph-subject { font-weight: 500; }
+.history-graph-commit.search-match:not(.selected) { background: var(--accent-soft); box-shadow: inset -2px 0 var(--accent); }
+.history-graph-commit.search-match .history-graph-subject { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+.history-graph-commit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.history-graph-commit:disabled { cursor: wait; }
+.history-graph-commit:disabled .history-graph-commit-main,
+.history-graph-commit:disabled .history-graph-date { opacity: .65; }
+
+.history-graph-commit-main { display: grid; gap: 4px; min-width: 0; }
+.history-graph-subject { overflow: hidden; font-size: 13px; line-height: 17px; text-overflow: ellipsis; white-space: nowrap; }
+.history-graph-meta { display: flex; align-items: center; gap: 7px; min-width: 0; height: 17px; color: var(--muted); font-size: 11px; line-height: 15px; }
+.history-graph-meta code { flex: 0 0 auto; color: var(--muted); font: 11px "DM Mono", Consolas, monospace; }
+.history-graph-author { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
+.history-graph-ref { flex: 0 1 auto; max-width: 140px; overflow: hidden; padding: 0 5px; border: 1px solid var(--success-border); border-radius: 3px; color: var(--green); background: var(--green-soft); font: 10px/15px "DM Mono", Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.history-graph-ref.head { border-color: var(--accent-border); color: var(--accent); background: var(--accent-soft); }
+.history-graph-ref.tag { border-color: var(--warning-border); color: var(--amber); background: var(--amber-soft); }
+.history-graph-ref-more { flex: 0 0 auto; color: var(--muted); font: 10px "DM Mono", Consolas, monospace; }
+.history-graph-date { color: var(--muted); font: 11px "DM Mono", Consolas, monospace; white-space: nowrap; }
+
+.history-graph-list[data-density="compact"] .history-graph-commit { column-gap: 6px; padding-right: 8px; }
+.history-graph-list[data-density="compact"] .history-graph-commit-main { gap: 0; }
+.history-graph-list[data-density="compact"] .history-graph-subject { line-height: 16px; }
+.history-graph-list[data-density="compact"] .history-graph-meta { gap: 5px; height: 16px; }
+
+.history-graph-continuation {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: var(--history-continuation-height);
+  padding: 0 12px 0 calc(var(--history-graph-width) + 8px);
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted);
+  background: var(--panel-raised);
+  font-size: 11px;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.history-graph-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+@media (prefers-contrast: more) {
+  .history-graph-commit:focus-visible { outline-width: 3px; }
+}
+
+@media (forced-colors: active) {
+  .history-graph-commit.search-match { outline: 1px dashed Highlight; outline-offset: -1px; }
+  .history-graph-commit.selected { color: HighlightText; background: Highlight; box-shadow: none; }
+  .history-graph-commit.selected :is(span, code) { color: inherit; }
+  .history-graph-ref, .history-graph-ref.head, .history-graph-ref.tag { border-color: currentColor; color: inherit; background: transparent; }
+  .history-graph-node-halo, .history-graph-node-ring { fill: Canvas; }
+  .history-graph-node.selected .history-graph-node-halo, .history-graph-node.selected .history-graph-node-ring { fill: Highlight; }
+}

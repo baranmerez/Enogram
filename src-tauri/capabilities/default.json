@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-window",
+  "description": "Local Enogram window for repository inspection and explicit stage/commit actions",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

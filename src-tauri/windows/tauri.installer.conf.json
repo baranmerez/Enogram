@@ -1,0 +1,29 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
+    "icon": ["icons/icon.ico"],
+    "externalBin": ["../.artifacts/installer/enogram-mcp"],
+    "resources": {
+      "../LICENSE": "LICENSE",
+      "../docs/MCP.md": "docs/MCP.md",
+      "../docs/INSTALLATION.md": "docs/INSTALLATION.md",
+      "icons/LICENSE-lucide.txt": "docs/LICENSE-lucide.txt"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
+    }
+  }
+}
