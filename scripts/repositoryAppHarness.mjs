@@ -8,6 +8,8 @@ import * as repositoryIdentity from "../src/repositoryIdentity.ts";
 import * as workingChanges from "../src/workingChanges.ts";
 import * as workspacePreferences from "../src/workspacePreferences.ts";
 import * as workspaceSearch from "../src/workspaceSearch.ts";
+import * as i18n from "../src/i18n.ts";
+import { appMessages } from "../src/locales/app.ts";
 
 const source = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
 const compiled = ts.transpileModule(`${source}\nexport { RepositoryApp };`, {
@@ -40,6 +42,12 @@ export function repositoryAppHarness({ localStorage } = {}) {
   const hooks = [];
   const requests = [];
   const storedValues = new Map();
+  const settingsStorage = localStorage ?? {
+    getItem: (key) => storedValues.get(key) ?? null,
+    setItem: (key, value) => storedValues.set(key, String(value)),
+  };
+  const localeStore = i18n.createLocaleStore();
+  localeStore.initialize(settingsStorage);
   let cursor = 0;
   let dirty = true;
   let pendingEffects = [];
@@ -107,6 +115,16 @@ export function repositoryAppHarness({ localStorage } = {}) {
     "./workingChanges": workingChanges,
     "./workspacePreferences": workspacePreferences,
     "./workspaceSearch": workspaceSearch,
+    "./i18n": { ...i18n, getLocale: () => localeStore.getSnapshot().locale },
+    "./locales/app": { appMessages },
+    "./useI18n": {
+      useI18n(catalog) {
+        const [state, setState] = react.useState(localeStore.getSnapshot);
+        react.useEffect(() => localeStore.subscribe(() => setState(localeStore.getSnapshot())), []);
+        const t = react.useCallback((key, params) => i18n.translate(catalog, localeStore.getSnapshot().locale, key, params), [catalog]);
+        return { locale: state.locale, localeSaved: state.saved, t, setLocale: localeStore.setLocale };
+      },
+    },
     "./workspaceControls.css": {},
   };
   const exports = {};
@@ -118,10 +136,7 @@ export function repositoryAppHarness({ localStorage } = {}) {
     },
     window: {
       addEventListener() {}, removeEventListener() {},
-      localStorage: localStorage ?? {
-        getItem: (key) => storedValues.get(key) ?? null,
-        setItem: (key, value) => storedValues.set(key, String(value)),
-      },
+      localStorage: settingsStorage,
     },
     document: { querySelector: () => null },
   }, { filename: "App.tsx" });
@@ -140,6 +155,7 @@ export function repositoryAppHarness({ localStorage } = {}) {
 
   return {
     requests,
+    setLocale: localeStore.setLocale,
     async flush() {
       for (let turn = 0; turn < 30; turn += 1) {
         render();

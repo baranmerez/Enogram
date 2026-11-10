@@ -4,8 +4,12 @@ import vm from "node:vm";
 import ts from "typescript";
 import * as repositoryActionModel from "../src/repositoryActionModel.ts";
 import * as repositoryIdentity from "../src/repositoryIdentity.ts";
+import * as i18n from "../src/i18n.ts";
+import * as controls from "../src/locales/controls.ts";
+import * as backendText from "../src/localizeBackendText.ts";
+import * as theme from "../src/theme.ts";
 
-const compiled = await Promise.all(["RemoteManagerDialog", "RepositoryActions"].map(async (name) => ({
+const compiled = await Promise.all(["ThemePanel", "RemoteManagerDialog", "RepositoryActions"].map(async (name) => ({
   name,
   code: ts.transpileModule(await readFile(new URL(`../src/${name}.tsx`, import.meta.url), "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
@@ -32,10 +36,10 @@ export function textContent(value) {
   return value === null || value === undefined || typeof value === "boolean" ? "" : String(value);
 }
 
-// Run both real components, reconciling keyed child state and attaching dialog
+// Run the real controls, reconciling keyed child state and attaching dialog
 // refs before effects. The native surface models open/close and detach behavior;
 // this is a component lifecycle check, not browser layout or focus acceptance.
-export function repositoryActionsHarness(initialProps) {
+export function repositoryActionsHarness(initialProps, initialLocale = "tr") {
   const instances = new Map();
   const closeEvents = [];
   let props = initialProps;
@@ -45,6 +49,9 @@ export function repositoryActionsHarness(initialProps) {
   let dirty = true;
   let effects = [];
   let tree;
+  let locale = initialLocale;
+  const translators = new Map();
+  const changeLocale = (next) => { locale = next; dirty = true; };
 
   const react = {
     useState(initial) {
@@ -75,6 +82,8 @@ export function repositoryActionsHarness(initialProps) {
       }
       return current.hooks[index].value;
     },
+    useCallback(callback, dependencies) { return react.useMemo(() => callback, dependencies); },
+    useLayoutEffect(effect, dependencies) { react.useEffect(effect, dependencies); },
     useEffect(effect, dependencies) {
       const index = cursor++;
       const previous = current.hooks[index];
@@ -90,9 +99,17 @@ export function repositoryActionsHarness(initialProps) {
     "react/jsx-runtime": { jsx, jsxs: jsx, Fragment: "Fragment" },
     "react-dom": { createPortal: (element) => element },
     "lucide-react": new Proxy({}, { get: (_target, name) => `icon:${String(name)}` }),
-    "./ThemePanel": { ThemePanel: "ThemePanel" },
+    "./theme": theme,
+    "./themePanel.css": {},
     "./repositoryActionModel": repositoryActionModel,
     "./repositoryIdentity": repositoryIdentity,
+    "./i18n.ts": i18n,
+    "./locales/controls.ts": controls,
+    "./localizeBackendText.ts": backendText,
+    "./useI18n": { useI18n(catalog) {
+      if (!translators.has(catalog)) translators.set(catalog, (key, params) => i18n.translate(catalog, locale, key, params));
+      return { locale, t: translators.get(catalog), setLocale: changeLocale, localeSaved: true };
+    } },
     "./repositoryActions.css": {},
   };
   for (const { name, code } of compiled) {
@@ -174,6 +191,7 @@ export function repositoryActionsHarness(initialProps) {
 
   return {
     setProps(change) { props = { ...props, ...change }; dirty = true; },
+    setLocale: changeLocale,
     async flush() {
       for (let turn = 0; turn < 30; turn += 1) {
         render();

@@ -1,6 +1,9 @@
 import { type CSSProperties, type KeyboardEvent, useEffect, useMemo, useRef } from "react";
 import { buildHistoryGraph, compactHistoryRowHeight, historyContinuationHeight, historyRowHeight, parseCommitRefs } from "./historyGraph";
+import { intlLocale } from "./i18n.ts";
+import { diffHistoryMessages } from "./locales/diffHistory.ts";
 import type { CommitEntry } from "./types";
+import { useI18n } from "./useI18n";
 import "./historyGraph.css";
 
 interface HistoryListProps {
@@ -13,24 +16,31 @@ interface HistoryListProps {
   revealOid?: string | null;
 }
 
-const dateFormatter = new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+type Translate = ReturnType<typeof useI18n>["t"];
 
-function formatDate(value: string): string {
+function formatDate(value: string, dateFormatter: Intl.DateTimeFormat, unknownDate: string): string {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value || "Tarih bilinmiyor" : dateFormatter.format(date);
+  return Number.isNaN(date.getTime()) ? value || unknownDate : dateFormatter.format(date);
 }
 
-function commitTitle(commit: CommitEntry): string {
+function parentDescription(commit: CommitEntry, t: Translate): string {
+  return commit.parents.length ? t(commit.parents.length === 1 ? "history.parent" : "history.parents", { parents: commit.parents.join(", ") }) : t("history.rootCommit");
+}
+
+function commitTitle(commit: CommitEntry, dateFormatter: Intl.DateTimeFormat, t: Translate): string {
   return [
     commit.subject,
     commit.oid,
-    `${commit.author} · ${formatDate(commit.date)}`,
+    `${commit.author} · ${formatDate(commit.date, dateFormatter, t("history.unknownDate"))}`,
     commit.refs,
-    commit.parents.length ? `Üst commit: ${commit.parents.join(", ")}` : "Kök commit",
+    parentDescription(commit, t),
   ].filter(Boolean).join("\n");
 }
 
 export function HistoryList({ commits, selectedOid, onSelect, disabled = false, density = "comfortable", matchingOids, revealOid }: HistoryListProps) {
+  const { locale, t } = useI18n(diffHistoryMessages);
+  const dateFormatter = useMemo(() => new Intl.DateTimeFormat(intlLocale(locale), { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }), [locale]);
+  const numberFormatter = useMemo(() => new Intl.NumberFormat(intlLocale(locale)), [locale]);
   const rowHeight = density === "compact" ? compactHistoryRowHeight : historyRowHeight;
   const graph = useMemo(() => buildHistoryGraph(commits, rowHeight), [commits, rowHeight]);
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
@@ -88,7 +98,7 @@ export function HistoryList({ commits, selectedOid, onSelect, disabled = false, 
             ))}
           </g>
         </svg>
-        <ol className="history-graph-rows" aria-label="Commit geçmişi">
+        <ol className="history-graph-rows" aria-label={t("history.list")}>
           {commits.map((commit, index) => {
             const refs = parseCommitRefs(commit.refs);
             const selected = commit.oid === selectedOid;
@@ -104,21 +114,21 @@ export function HistoryList({ commits, selectedOid, onSelect, disabled = false, 
                   data-search-match={searchMatch ? "true" : undefined}
                   onClick={() => onSelect(commit)}
                   onKeyDown={(event) => moveFocus(event, index)}
-                  title={commitTitle(commit)}
+                  title={commitTitle(commit, dateFormatter, t)}
                 >
                   <span className="history-graph-spacer" aria-hidden="true" />
                   <span className="history-graph-commit-main">
-                    <span className="history-graph-subject">{commit.subject || "(Başlıksız commit)"}</span>
+                    <span className="history-graph-subject">{commit.subject || t("history.untitledCommit")}</span>
                     <span className="history-graph-meta">
                       <code>{commit.oid.slice(0, 8)}</code>
                       {refs[0] && <span className={`history-graph-ref ${refs[0].kind}`} title={commit.refs}>{refs[0].label}</span>}
-                      {refs.length > 1 && <span className="history-graph-ref-more" title={commit.refs} aria-label={`Diğer referanslar: ${refs.slice(1).map((ref) => ref.label).join(", ")}`}>+{refs.length - 1}</span>}
+                      {refs.length > 1 && <span className="history-graph-ref-more" title={commit.refs} aria-label={t("history.otherRefs", { refs: refs.slice(1).map((ref) => ref.label).join(", ") })}>+{numberFormatter.format(refs.length - 1)}</span>}
                       <span className="history-graph-author">{commit.author}</span>
                     </span>
                   </span>
-                  <span className="history-graph-date">{formatDate(commit.date)}</span>
+                  <span className="history-graph-date">{formatDate(commit.date, dateFormatter, t("history.unknownDate"))}</span>
                   <span className="history-graph-sr-only">
-                    {commit.parents.length ? `Üst commit: ${commit.parents.join(", ")}` : "Kök commit"}
+                    {parentDescription(commit, t)}
                   </span>
                 </button>
               </li>
@@ -126,9 +136,9 @@ export function HistoryList({ commits, selectedOid, onSelect, disabled = false, 
           })}
         </ol>
         {graph.boundaries.length > 0 && (
-          <div className="history-graph-continuation" title={`${boundaryCount} üst commit bu görünümün dışında: ${[...new Set(graph.boundaries.map((boundary) => boundary.parentOid))].join(", ")}`}>
-            <span>Geçmiş bu listenin dışında devam ediyor</span>
-            <span className="history-graph-sr-only">{boundaryCount} üst commit görüntülenen geçmişin dışında.</span>
+          <div className="history-graph-continuation" title={t(boundaryCount === 1 ? "history.boundaryTitleOne" : "history.boundaryTitleMany", { count: numberFormatter.format(boundaryCount), parents: [...new Set(graph.boundaries.map((boundary) => boundary.parentOid))].join(", ") })}>
+            <span>{t("history.continuation")}</span>
+            <span className="history-graph-sr-only">{t(boundaryCount === 1 ? "history.boundaryDescriptionOne" : "history.boundaryDescriptionMany", { count: numberFormatter.format(boundaryCount) })}</span>
           </div>
         )}
       </div>

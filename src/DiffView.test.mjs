@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { diffViewHarness, textContent } from "../scripts/diffViewHarness.mjs";
+import { diffViewHarness, historyListHarness, textContent } from "../scripts/diffViewHarness.mjs";
 import { parseDiffLines } from "./diffLines.ts";
 
 const patch = "--- a/file.txt\n+++ b/file.txt\n@@ -2,2 +2,2 @@\n-İ\t[A]. old  \n+İ\t[a]. new  \n same\n@@ -80 +90 @@\n-old\n+<img src=x> [A].\n";
 const result = (text = patch, overrides = {}) => ({ text, binary: false, truncated: false, ...overrides });
 const byClass = (name) => (node) => node.props.className?.split(" ").includes(name);
-const input = (app) => app.find((node) => node.type === "input" && node.props["aria-label"] === "Farkta ara");
+const input = (app) => app.find((node) => node.type === "input" && node.props.type === "text");
 const button = (app, label) => app.find((node) => node.type === "button" && node.props["aria-label"] === label);
 const marks = (app) => app.all((node) => node.type === "mark");
 const count = (app) => textContent(app.find(byClass("diff-search-count")));
@@ -25,12 +25,12 @@ function key(app, keyValue, extra = {}) {
     defaultPrevented: false, propagationStopped: false,
     preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.propagationStopped = true; }, ...extra,
   };
-  app.find((node) => node.props["aria-label"] === "Dosya farkı").props.onKeyDown(event);
+  app.find((node) => node.props.role === "region").props.onKeyDown(event);
   app.flush();
   return event;
 }
-function mount(t, overrides = {}) {
-  const app = diffViewHarness({ state: "ready", result: result(), error: null, targetKey: "repo:working:unstaged:file.txt", ...overrides });
+function mount(t, overrides = {}, options) {
+  const app = diffViewHarness({ state: "ready", result: result(), error: null, targetKey: "repo:working:unstaged:file.txt", ...overrides }, options);
   t.after(() => app.unmount());
   app.flush();
   return app;
@@ -192,7 +192,7 @@ test("excess matches show a visible limit and navigation covers only the retaine
   const text = "a".repeat(2_001);
   const app = mount(t, { result: result(text) });
   search(app, "a");
-  assert.equal(count(app), "1 / 2000+");
+  assert.equal(count(app), "1 / 2.000+");
   assert.equal(marks(app).length, 2_000);
   assert.match(textContent(app.find(byClass("diff-search-limit"))), /İlk 2\.000 eşleşme gösteriliyor/);
   assert.equal(textContent(app.find((node) => node.type === "code")), text);
@@ -398,3 +398,117 @@ for (const [label, props, message] of [
     assert.match(textContent(app.find(byClass("panel-message"))), message);
   });
 }
+
+test("switching diff language preserves search, selected rows, hunk position and viewport", async (t) => {
+  const requests = [];
+  const app = mount(t, { partialSelection: selectionOptions({ onApply: async (request) => requests.push(plainRequest(request)) }) });
+  search(app, "[a].");
+  click(app, "Sonraki eşleşme");
+  click(app, "Sonraki değişiklik bölümü");
+  select(app, "Eklenen satır 90 seç");
+  const viewport = app.find(byClass("diff-scroll")).surface;
+  viewport.scrollTop = 120;
+  viewport.scrollLeft = 42;
+  const scrollCount = app.scrolls.length;
+  const source = app.all((node) => node.type === "code").map(textContent);
+
+  app.setLocale("en"); app.flush();
+  assert.equal(input(app).props["aria-label"], "Search diff");
+  assert.equal(input(app).props.placeholder, "Search diff…");
+  assert.equal(input(app).props.value, "[a].");
+  assert.equal(currentIndex(app), 1);
+  assert.equal(app.find(byClass("is-current-hunk")).props["data-diff-line"], 2);
+  assert.equal(textContent(app.find(byClass("diff-hunk-count"))), "Hunk 1 / 2");
+  assert.equal(selectionCount(app), "1 line selected");
+  assert.equal(checkbox(app, "Select added line 90").props.checked, true);
+  assert.equal(button(app, "Next match").props.title, "Next match (Enter / F3)");
+  assert.equal(app.find(byClass("diff-search-count")).props["aria-label"], "Match 2 of 3");
+  assert.equal(textContent(button(app, "Stage hunk 1")), "Stage hunk");
+  assert.deepEqual(app.all((node) => node.type === "code").map(textContent), source);
+  assert.equal(viewport.scrollTop, 120);
+  assert.equal(viewport.scrollLeft, 42);
+  assert.equal(app.scrolls.length, scrollCount, "Language changes must not navigate the diff");
+
+  await click(app, "Stage selected lines"); app.flush();
+  assert.deepEqual(requests, [{ selectionToken: "prepared-1", lineIds: [8] }]);
+  app.setLocale("tr"); app.flush();
+  assert.equal(input(app).props["aria-label"], "Farkta ara");
+  assert.equal(selectionCount(app), "0 satır seçili");
+  assert.equal(input(app).props.value, "[a].");
+  assert.equal(currentIndex(app), 1);
+});
+
+test("English diff limits, unavailable selections and state messages follow the active language", (t) => {
+  const app = mount(t, { result: result("a".repeat(2_001), { truncated: true }), partialSelection: selectionOptions() }, { locale: "en" });
+  search(app, "a");
+  assert.equal(count(app), "1 / 2,000+");
+  assert.equal(app.find(byClass("diff-search-count")).props["aria-label"], "Match 1 of at least 2,000");
+  assert.match(textContent(app.find(byClass("diff-search-limit"))), /first 2,000 matches/);
+  assert.match(textContent(app.find(byClass("diff-truncated"))), /only the displayed portion/);
+  assert.match(textContent(app.find(byClass("diff-selection-notice"))), /truncated diff/);
+
+  for (const [props, message] of [
+    [{ result: result("binary", { binary: true }) }, /binary file/],
+    [{ result: result("") }, /No changes to show/],
+    [{ result: null, state: "idle" }, /Select a file/],
+    [{ state: "loading" }, /Loading diff/],
+    [{ state: "error", error: "Raw Git diagnostic: İ /tmp/örnek" }, /Raw Git diagnostic: İ \/tmp\/örnek/],
+  ]) {
+    app.setProps(props); app.flush();
+    assert.match(textContent(app.find(byClass("panel-message"))), message);
+    assert.equal(app.all((node) => node.type === "input" || node.type === "button").length, 0);
+  }
+});
+
+test("known backend selection reasons translate on switch while unknown diagnostics stay exact", (t) => {
+  const reason = "Binary files do not support individual-line actions.";
+  const options = selectionOptions({ unsupportedReason: reason });
+  const app = mount(t, { partialSelection: options });
+  assert.match(textContent(app.find(byClass("diff-selection-notice"))), /İkili dosyalarda/);
+  app.setLocale("en"); app.flush();
+  assert.equal(textContent(app.find(byClass("diff-selection-notice"))), reason);
+  const diagnostic = "External helper: İĞÜŞ /work/örnek.txt";
+  app.setProps({ partialSelection: { ...options, unsupportedReason: diagnostic } }); app.flush();
+  app.setLocale("tr"); app.flush();
+  assert.equal(textContent(app.find(byClass("diff-selection-notice"))), diagnostic);
+});
+
+test("history language changes localize captions and dates while preserving commits, refs and graph selection", (t) => {
+  const commits = [
+    { oid: "c".repeat(40), parents: ["b".repeat(40), "outside-parent"], author: "İpek Ünal", date: "2026-01-02T10:35:00Z", subject: "Türkçe commit başlığı", refs: "HEAD -> özellik/iş, tag: sürüm-1, origin/özellik" },
+    { oid: "b".repeat(40), parents: [], author: "Raw Author", date: "", subject: "", refs: "" },
+  ];
+  const selections = [];
+  const app = historyListHarness({ commits, selectedOid: commits[0].oid, onSelect: (commit) => selections.push(commit) });
+  t.after(() => app.unmount());
+  app.flush();
+  const paths = app.all((node) => node.type === "path").map((node) => node.props.d);
+  const trDate = textContent(app.all(byClass("history-graph-date"))[0]);
+  assert.equal(app.find(byClass("history-graph-rows")).props["aria-label"], "Commit geçmişi");
+
+  app.setLocale("en"); app.flush();
+  assert.equal(app.find(byClass("history-graph-rows")).props["aria-label"], "Commit history");
+  assert.deepEqual(app.all(byClass("history-graph-subject")).map(textContent), [commits[0].subject, "(Untitled commit)"]);
+  assert.deepEqual(app.all(byClass("history-graph-author")).map(textContent), commits.map((commit) => commit.author));
+  assert.equal(app.find(byClass("history-graph-ref")).props.title, commits[0].refs);
+  assert.equal(textContent(app.find(byClass("history-graph-ref"))), "HEAD → özellik/iş");
+  assert.equal(app.find(byClass("history-graph-ref-more")).props["aria-label"], "Other references: tag: sürüm-1, origin/özellik");
+  const dates = app.all(byClass("history-graph-date")).map(textContent);
+  assert.equal(dates[0], new Intl.DateTimeFormat("en-US", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(commits[0].date)));
+  assert.notEqual(dates[0], trDate);
+  assert.equal(dates[1], "Unknown date");
+  const rows = app.all(byClass("history-graph-commit"));
+  assert.equal(rows[0].props["aria-pressed"], true);
+  assert.match(rows[0].props.title, /Parent commits: b{40}, outside-parent/);
+  assert.match(rows[1].props.title, /Root commit/);
+  const continuation = app.find(byClass("history-graph-continuation"));
+  assert.equal(continuation.props.title, "1 parent commit is outside this view: outside-parent");
+  assert.match(textContent(continuation), /History continues beyond this list/);
+  assert.deepEqual(app.all((node) => node.type === "path").map((node) => node.props.d), paths);
+  rows[0].props.onClick();
+  assert.equal(selections[0], commits[0]);
+
+  app.setLocale("tr"); app.flush();
+  assert.equal(textContent(app.all(byClass("history-graph-date"))[0]), trDate);
+  assert.equal(app.find(byClass("history-graph-rows")).props["aria-label"], "Commit geçmişi");
+});

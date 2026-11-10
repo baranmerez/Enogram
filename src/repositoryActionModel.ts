@@ -1,4 +1,7 @@
 import type { BranchEntry, RemoteEntry, RepositorySnapshot } from "./types";
+import { getLocale, translate, type Locale } from "./i18n.ts";
+import { controlsMessages } from "./locales/controls.ts";
+import { localizeBackendText } from "./localizeBackendText.ts";
 
 export type NetworkActionKind = "fetch" | "pull" | "push";
 export type RemoteConfigurationActionKind = "addRemote" | "updateRemote";
@@ -36,6 +39,7 @@ export interface RemoteConfigurationDraft extends RepositoryTarget {
 export interface RepositoryActionFeedback {
   kind: "success" | "error";
   message: string;
+  localizedMessage?: Record<Locale, string>;
   repositoryAction: RepositoryAction;
 }
 
@@ -54,41 +58,41 @@ export function defaultRemoteTarget(snapshot: RepositorySnapshot): { remoteName:
   };
 }
 
-export function networkActionBlockReason(kind: NetworkActionKind, snapshot: RepositorySnapshot | null): string | null {
-  if (!snapshot) return "Önce bir yerel depo açın.";
-  if (!snapshot.remotes.length) return "Uzak depo tanımlı değil. Uzak depolar penceresinden bir bağlantı ekleyin.";
+export function networkActionBlockReason(kind: NetworkActionKind, snapshot: RepositorySnapshot | null, locale: Locale = getLocale()): string | null {
+  if (!snapshot) return translate(controlsMessages, locale, "openRepositoryFirst");
+  if (!snapshot.remotes.length) return translate(controlsMessages, locale, "noRemotes");
   if (kind === "fetch") return null;
-  if (snapshot.isUnborn || !snapshot.head) return `${kind === "pull" ? "Pull" : "Push"} için önce ilk commit'i oluşturun.`;
-  if (kind === "pull" && !currentBranch(snapshot)) return "Pull için yerel bir dala geçin.";
+  if (snapshot.isUnborn || !snapshot.head) return translate(controlsMessages, locale, "networkFirstCommitRequired", { action: kind === "pull" ? "Pull" : "Push" });
+  if (kind === "pull" && !currentBranch(snapshot)) return translate(controlsMessages, locale, "pullLocalBranchRequired");
   if (kind === "pull" && (snapshot.changes.length > 0 || snapshot.mergeInProgress)) {
-    return "Pull için çalışma ağacı ve dizin temiz olmalı; bekleyen merge tamamlanmalı.";
+    return translate(controlsMessages, locale, "pullCleanCheckoutRequired");
   }
   return null;
 }
 
-export function branchNameError(name: string, existingBranches: BranchEntry[] = []): string | null {
-  if (!name.trim()) return "Bir dal adı girin.";
-  if (name !== name.trim()) return "Dal adının başında veya sonunda boşluk olamaz.";
-  if (existingBranches.some((branch) => branch.name === name)) return "Bu adda bir yerel dal zaten var.";
+export function branchNameError(name: string, existingBranches: BranchEntry[] = [], locale: Locale = getLocale()): string | null {
+  if (!name.trim()) return translate(controlsMessages, locale, "branchNameRequired");
+  if (name !== name.trim()) return translate(controlsMessages, locale, "branchNameWhitespace");
+  if (existingBranches.some((branch) => branch.name === name)) return translate(controlsMessages, locale, "branchNameExists");
   return null;
 }
 
-export function remoteConfigurationNameError(name: string, existingRemotes: RemoteEntry[] = []): string | null {
-  if (!name.trim()) return "Bir uzak depo adı girin.";
-  if (name !== name.trim()) return "Uzak depo adının başında veya sonunda boşluk olamaz.";
-  if (/[\s\u0000-\u001f\u007f]/u.test(name)) return "Uzak depo adında boşluk veya kontrol karakteri olamaz.";
-  if (name.startsWith("-") || name.startsWith("/") || /[:\\*?\[\^~]/u.test(name)) return "Geçerli bir uzak depo adı girin; örneğin origin veya upstream.";
-  if (existingRemotes.some((remote) => remote.name === name)) return "Bu adda bir uzak depo zaten var.";
+export function remoteConfigurationNameError(name: string, existingRemotes: RemoteEntry[] = [], locale: Locale = getLocale()): string | null {
+  if (!name.trim()) return translate(controlsMessages, locale, "remoteNameRequired");
+  if (name !== name.trim()) return translate(controlsMessages, locale, "remoteNameWhitespace");
+  if (/[\s\u0000-\u001f\u007f]/u.test(name)) return translate(controlsMessages, locale, "remoteNameCharacters");
+  if (name.startsWith("-") || name.startsWith("/") || /[:\\*?\[\^~]/u.test(name)) return translate(controlsMessages, locale, "remoteNameInvalid");
+  if (existingRemotes.some((remote) => remote.name === name)) return translate(controlsMessages, locale, "remoteNameExists");
   return null;
 }
 
-export function remoteConfigurationUrlError(url: string): string | null {
-  if (!url.trim()) return "Bir depo adresi girin.";
-  if (url !== url.trim()) return "Adresin başında veya sonunda boşluk olamaz.";
-  if (/[\u0000-\u001f\u007f]/u.test(url)) return "Adres satır sonu veya kontrol karakteri içeremez.";
+export function remoteConfigurationUrlError(url: string, locale: Locale = getLocale()): string | null {
+  if (!url.trim()) return translate(controlsMessages, locale, "remoteUrlRequired");
+  if (url !== url.trim()) return translate(controlsMessages, locale, "remoteUrlWhitespace");
+  if (/[\u0000-\u001f\u007f]/u.test(url)) return translate(controlsMessages, locale, "remoteUrlCharacters");
   const scheme = url.match(/^([a-z][a-z0-9+.-]*):\/\//iu)?.[1].toLowerCase();
   if (url.startsWith("-") || (scheme ? !["http", "https", "ssh", "git", "file", "ftp", "ftps"].includes(scheme) : url.includes("::"))) {
-    return "SSH, HTTPS veya yerel bir depo adresi girin.";
+    return translate(controlsMessages, locale, "remoteUrlInvalid");
   }
   return null;
 }
@@ -106,31 +110,31 @@ export function createRemoteConfigurationDraft(snapshot: RepositorySnapshot, rem
   };
 }
 
-export function remoteConfigurationStaleReason(draft: RemoteConfigurationDraft, snapshot: RepositorySnapshot | null): string | null {
-  if (!snapshot || draft.repoPath !== snapshot.repoPath) return "Açık depo değişti. Bu depo için yeni bir form açın.";
+export function remoteConfigurationStaleReason(draft: RemoteConfigurationDraft, snapshot: RepositorySnapshot | null, locale: Locale = getLocale()): string | null {
+  if (!snapshot || draft.repoPath !== snapshot.repoPath) return translate(controlsMessages, locale, "remoteDraftRepositoryChanged");
   if (draft.source) {
     const current = snapshot.remotes.find((remote) => remote.name === draft.source?.name);
-    if (!current) return "Bu uzak depo kaldırılmış. Taslağınız korundu; güncel ayarı yükleyin.";
-    if (current.configToken !== draft.source.configToken) return "Uzak depo ayarı bu form açıldıktan sonra değişti. Taslağınız korundu; güncel ayarı yükleyin.";
+    if (!current) return translate(controlsMessages, locale, "remoteDraftRemoved");
+    if (current.configToken !== draft.source.configToken) return translate(controlsMessages, locale, "remoteDraftConfigurationChanged");
   }
-  if (snapshot.mutationToken !== draft.expectedToken) return "Depo durumu bu form açıldıktan sonra değişti. Taslağınız korundu; güncel ayarı yükleyin.";
+  if (snapshot.mutationToken !== draft.expectedToken) return translate(controlsMessages, locale, "remoteDraftStateChanged");
   return null;
 }
 
-export function remoteConfigurationDraftError(draft: RemoteConfigurationDraft, remotes: RemoteEntry[] = []): string | null {
-  if (draft.source?.editBlockedReason) return draft.source.editBlockedReason;
+export function remoteConfigurationDraftError(draft: RemoteConfigurationDraft, remotes: RemoteEntry[] = [], locale: Locale = getLocale()): string | null {
+  if (draft.source?.editBlockedReason) return localizeBackendText(draft.source.editBlockedReason, locale);
   if (!draft.source) {
-    const nameError = remoteConfigurationNameError(draft.name, remotes);
+    const nameError = remoteConfigurationNameError(draft.name, remotes, locale);
     if (nameError) return nameError;
   }
   const preservesHiddenFetch = draft.source?.configuredFetchUrl === null && draft.fetchUrl === "";
   if (!preservesHiddenFetch) {
-    const fetchError = remoteConfigurationUrlError(draft.fetchUrl);
+    const fetchError = remoteConfigurationUrlError(draft.fetchUrl, locale);
     if (fetchError) return fetchError;
   }
   if (draft.separatePushUrl) {
     const preservesHiddenPush = draft.source?.hasExplicitPushUrl && draft.source.configuredPushUrl === null && draft.pushUrl === "";
-    if (!preservesHiddenPush) return remoteConfigurationUrlError(draft.pushUrl);
+    if (!preservesHiddenPush) return remoteConfigurationUrlError(draft.pushUrl, locale);
   }
   return null;
 }
@@ -179,44 +183,42 @@ export function repositoryActionCommand(action: RepositoryAction): { command: st
     : { command: action.kind === "pull" ? "pull_remote" : "push_remote", args: { ...remote, branchName: action.branchName } };
 }
 
-export function repositoryActionContext(action: RepositoryAction): string {
-  if (action.kind === "createBranch") return `Yeni dal · ${action.name}${action.checkout ? " · oluştur ve geç" : ""}`;
-  if (action.kind === "switchBranch") return `Dal değiştir · ${action.name}`;
-  if (action.kind === "addRemote") return `Uzak depo ekle · ${action.name}`;
-  if (action.kind === "updateRemote") return `Uzak depo düzenle · ${action.remoteName}`;
-  if (action.kind === "fetch") return `Fetch · ${action.remoteName} · izleme dalları`;
+export function repositoryActionContext(action: RepositoryAction, locale: Locale = getLocale()): string {
+  if (action.kind === "createBranch") return translate(controlsMessages, locale, action.checkout ? "actionCreateAndSwitchContext" : "actionCreateBranchContext", { name: action.name });
+  if (action.kind === "switchBranch") return translate(controlsMessages, locale, "actionSwitchBranchContext", { name: action.name });
+  if (action.kind === "addRemote") return translate(controlsMessages, locale, "actionAddRemoteContext", { name: action.name });
+  if (action.kind === "updateRemote") return translate(controlsMessages, locale, "actionUpdateRemoteContext", { name: action.remoteName });
+  if (action.kind === "fetch") return translate(controlsMessages, locale, "actionFetchContext", { name: action.remoteName });
   const remoteBranch = `${action.remoteName}/${action.branchName}`;
-  return action.kind === "pull"
-    ? `Pull · ${remoteBranch} → ${action.localBranch}`
-    : `Push · ${action.localBranch} → ${remoteBranch}`;
+  return translate(controlsMessages, locale, action.kind === "pull" ? "actionPullContext" : "actionPushContext", { remoteBranch, localBranch: action.localBranch });
 }
 
-export function repositoryActionProgress(action: RepositoryAction): string {
+export function repositoryActionProgress(action: RepositoryAction, locale: Locale = getLocale()): string {
   switch (action.kind) {
-    case "createBranch": return "Dal oluşturuluyor…";
-    case "switchBranch": return "Yerel dala geçiliyor…";
-    case "addRemote": return "Uzak depo bağlantısı ekleniyor…";
-    case "updateRemote": return "Uzak depo adresleri kaydediliyor…";
-    case "fetch": return "Uzak dalların izleme bilgileri alınıyor…";
-    case "pull": return "Uzak dal alınıyor ve fast-forward uygulanıyor…";
-    case "push": return "Yerel dal uzak depoya gönderiliyor…";
+    case "createBranch": return translate(controlsMessages, locale, "actionCreateBranchProgress");
+    case "switchBranch": return translate(controlsMessages, locale, "actionSwitchBranchProgress");
+    case "addRemote": return translate(controlsMessages, locale, "actionAddRemoteProgress");
+    case "updateRemote": return translate(controlsMessages, locale, "actionUpdateRemoteProgress");
+    case "fetch": return translate(controlsMessages, locale, "actionFetchProgress");
+    case "pull": return translate(controlsMessages, locale, "actionPullProgress");
+    case "push": return translate(controlsMessages, locale, "actionPushProgress");
   }
 }
 
-export function repositoryActionDeadline(kind: RepositoryActionKind): string {
-  if (kind === "pull") return "Komut sınırları: ağ 120 sn · fast-forward 20 sn";
-  if (kind === "fetch" || kind === "push") return "Ağ komutu sınırı: 120 sn";
-  return "Yerel komut sınırı: 20 sn";
+export function repositoryActionDeadline(kind: RepositoryActionKind, locale: Locale = getLocale()): string {
+  if (kind === "pull") return translate(controlsMessages, locale, "actionPullDeadline");
+  if (kind === "fetch" || kind === "push") return translate(controlsMessages, locale, "actionNetworkDeadline");
+  return translate(controlsMessages, locale, "actionLocalDeadline");
 }
 
-export function repositoryActionSuccess(action: RepositoryAction): string {
+export function repositoryActionSuccess(action: RepositoryAction, locale: Locale = getLocale()): string {
   switch (action.kind) {
-    case "createBranch": return `“${action.name}” dalı oluşturuldu${action.checkout ? " ve bu dala geçildi" : ""}.`;
-    case "switchBranch": return `“${action.name}” dalına geçildi.`;
-    case "addRemote": return `“${action.name}” uzak deposu eklendi. Bağlantıyı kullanmak için Fetch, Pull veya Push seçebilirsiniz.`;
-    case "updateRemote": return `“${action.remoteName}” uzak deposunun adresleri kaydedildi.`;
-    case "fetch": return `“${action.remoteName}” izleme bilgileri güncellendi.`;
-    case "pull": return "Pull tamamlandı. Açık dalın güncel durumu okundu.";
-    case "push": return `${action.localBranch} → ${action.remoteName}/${action.branchName} için Push tamamlandı.`;
+    case "createBranch": return translate(controlsMessages, locale, action.checkout ? "actionCreateAndSwitchSuccess" : "actionCreateBranchSuccess", { name: action.name });
+    case "switchBranch": return translate(controlsMessages, locale, "actionSwitchBranchSuccess", { name: action.name });
+    case "addRemote": return translate(controlsMessages, locale, "actionAddRemoteSuccess", { name: action.name });
+    case "updateRemote": return translate(controlsMessages, locale, "actionUpdateRemoteSuccess", { name: action.remoteName });
+    case "fetch": return translate(controlsMessages, locale, "actionFetchSuccess", { name: action.remoteName });
+    case "pull": return translate(controlsMessages, locale, "actionPullSuccess");
+    case "push": return translate(controlsMessages, locale, "actionPushSuccess", { localBranch: action.localBranch, remoteBranch: `${action.remoteName}/${action.branchName}` });
   }
 }

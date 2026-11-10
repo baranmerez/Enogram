@@ -2,7 +2,11 @@ import { AlertCircle, ArrowDown, ArrowUp, Check, ChevronsDown, ChevronsUp, FileC
 import { type CSSProperties, type KeyboardEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { type DiffLine, parseDiffLines } from "./diffLines";
 import { type DiffSearchMatch, findDiffHunks, findDiffMatches, stepDiffIndex } from "./diffSearch";
+import { intlLocale, type Locale } from "./i18n.ts";
+import { localizeBackendText } from "./localizeBackendText.ts";
+import { diffHistoryMessages } from "./locales/diffHistory.ts";
 import type { DiffResult } from "./types";
+import { useI18n } from "./useI18n";
 import "./diffView.css";
 
 interface DiffViewProps {
@@ -27,19 +31,21 @@ export interface DiffPartialSelection {
   onApply: (selection: DiffSelectionRequest) => Promise<void>;
 }
 
-function lineDescription(line: DiffLine): string {
-  if (line.kind === "add") return `Eklenen satır ${line.newNumber}: `;
-  if (line.kind === "remove") return `Silinen satır ${line.oldNumber}: `;
-  if (line.kind === "context") return `Eski satır ${line.oldNumber}, yeni satır ${line.newNumber}: `;
+type Translate = ReturnType<typeof useI18n>["t"];
+
+function lineDescription(line: DiffLine, t: Translate, numberFormatter: Intl.NumberFormat): string {
+  if (line.kind === "add") return t("diff.addedLineDescription", { line: numberFormatter.format(line.newNumber!) });
+  if (line.kind === "remove") return t("diff.removedLineDescription", { line: numberFormatter.format(line.oldNumber!) });
+  if (line.kind === "context") return t("diff.contextLineDescription", { oldLine: numberFormatter.format(line.oldNumber!), newLine: numberFormatter.format(line.newNumber!) });
   return "";
 }
 
-function selectionUnavailableReason(result: DiffResult, partialSelection?: DiffPartialSelection): string | null {
+function selectionUnavailableReason(result: DiffResult, t: Translate, locale: Locale, partialSelection?: DiffPartialSelection): string | null {
   if (!partialSelection) return null;
-  if (partialSelection.unsupportedReason) return partialSelection.unsupportedReason;
-  if (result.binary) return "İkili dosyalarda satır veya bölüm seçimi kullanılamıyor.";
-  if (result.truncated) return "Kısaltılmış farkta satır veya bölüm seçimi kullanılamıyor.";
-  if (!partialSelection.selectionToken) return "Bu fark için satır veya bölüm seçimi kullanılamıyor.";
+  if (partialSelection.unsupportedReason) return localizeBackendText(partialSelection.unsupportedReason, locale);
+  if (result.binary) return t("diff.selectionUnavailableBinary");
+  if (result.truncated) return t("diff.selectionUnavailableTruncated");
+  if (!partialSelection.selectionToken) return t("diff.selectionUnavailable");
   return null;
 }
 
@@ -48,22 +54,23 @@ function SelectionNotice({ reason }: { reason: string | null }) {
 }
 
 export function DiffView({ result, state, error, targetKey, partialSelection }: DiffViewProps) {
+  const { locale, t } = useI18n(diffHistoryMessages);
   if (state === "loading") {
-    return <div className="panel-message"><LoaderCircle className="spin" size={18} /> Değişiklik okunuyor…</div>;
+    return <div className="panel-message"><LoaderCircle className="spin" size={18} /> {t("diff.loading")}</div>;
   }
   if (state === "error") {
     return <div className="panel-message error-message"><AlertCircle size={18} /> <span>{error}</span></div>;
   }
   if (!result) {
-    return <div className="panel-message muted-message"><FileDiff size={20} /> Görüntülemek için bir dosya seçin.</div>;
+    return <div className="panel-message muted-message"><FileDiff size={20} /> {t("diff.selectFile")}</div>;
   }
   if (result.binary) {
-    return <div className="diff-view"><SelectionNotice reason={selectionUnavailableReason(result, partialSelection)} />
-      <div className="panel-message"><FileCode2 size={20} /> Bu dosya ikili; metin farkı gösterilemiyor.</div></div>;
+    return <div className="diff-view"><SelectionNotice reason={selectionUnavailableReason(result, t, locale, partialSelection)} />
+      <div className="panel-message"><FileCode2 size={20} /> {t("diff.binary")}</div></div>;
   }
   if (!result.text.trim()) {
-    return <div className="diff-view"><SelectionNotice reason={selectionUnavailableReason(result, partialSelection)} />
-      <div className="panel-message muted-message"><Check size={18} /> Bu kapsamda gösterilecek fark yok.</div></div>;
+    return <div className="diff-view"><SelectionNotice reason={selectionUnavailableReason(result, t, locale, partialSelection)} />
+      <div className="panel-message muted-message"><Check size={18} /> {t("diff.empty")}</div></div>;
   }
 
   // A new repository/file/layer owns a fresh search, even if its diff is identical.
@@ -138,6 +145,8 @@ interface SelectedLines {
 }
 
 function TextDiffView({ result, partialSelection }: { result: DiffResult; partialSelection?: DiffPartialSelection }) {
+  const { locale, t } = useI18n(diffHistoryMessages);
+  const numberFormatter = useMemo(() => new Intl.NumberFormat(intlLocale(locale)), [locale]);
   const lines = useMemo(() => parseDiffLines(result.text), [result.text]);
   const [query, setQuery] = useState("");
   const { matches, limited } = useMemo(() => findDiffMatches(lines, query), [lines, query]);
@@ -154,7 +163,7 @@ function TextDiffView({ result, partialSelection }: { result: DiffResult; partia
   const selectionInFlight = useRef(false);
   const selectionToken = partialSelection?.selectionToken ?? null;
   const staged = partialSelection?.staged ?? false;
-  const unavailableReason = selectionUnavailableReason(result, partialSelection);
+  const unavailableReason = selectionUnavailableReason(result, t, locale, partialSelection);
   const selectableIds = useMemo(() => {
     if (!partialSelection || unavailableReason) return new Set<number>();
     // Parser output retains physical patch row positions. Source text is never
@@ -174,13 +183,14 @@ function TextDiffView({ result, partialSelection }: { result: DiffResult; partia
     return grouped;
   }, [lines, selectableIds]);
   const selectionBusy = Boolean(partialSelection?.busy || submittingSelection);
-  const actionLabel = staged ? "Unstage" : "Stage";
-  const selectedActionLabel = staged ? "Seçili satırları Unstage yap" : "Seçili satırları Stage'e al";
+  const actionLabel = t(staged ? "diff.unstage" : "diff.stage");
+  const selectedActionLabel = t(staged ? "diff.unstageSelected" : "diff.stageSelected");
   const hasSelectionGutter = selectableIds.size > 0;
   // New query/results immediately discard old offsets before the next paint.
   const matchIndex = matches.length === 0 ? -1 : selectedMatch?.matches === matches ? selectedMatch.index : 0;
   const hunkIndex = selectedHunk?.lines === lines ? selectedHunk.index : -1;
-  const totalLabel = `${matches.length}${limited ? "+" : ""}`;
+  const currentMatchLabel = numberFormatter.format(matchIndex + 1);
+  const totalLabel = `${numberFormatter.format(matches.length)}${limited ? "+" : ""}`;
   const matchesByLine = useMemo(() => {
     const grouped = new Map<number, IndexedMatch[]>();
     matches.forEach((match, index) => {
@@ -287,46 +297,46 @@ function TextDiffView({ result, partialSelection }: { result: DiffResult; partia
   const codeStyle = { "--diff-line-number-width": `${numberDigits + 2}ch` } as CSSProperties;
 
   return (
-    <div className="diff-view" role="region" aria-label="Dosya farkı" tabIndex={0} onKeyDown={handleKeyDown}>
-      <div className="diff-view-toolbar" role="group" aria-label="Farkta arama ve gezinme">
+    <div className="diff-view" role="region" aria-label={t("diff.region")} tabIndex={0} onKeyDown={handleKeyDown}>
+      <div className="diff-view-toolbar" role="group" aria-label={t("diff.searchToolbar")}>
         <div className="diff-search-controls">
           <label className="diff-search-field">
             <Search size={13} aria-hidden="true" />
             <input ref={searchRef} type="text" value={query} onChange={(event) => setQuery(event.target.value)}
-              aria-label="Farkta ara" aria-describedby={searchDescriptionId} aria-keyshortcuts="Control+f Meta+f"
-              placeholder="Farkta ara…" autoComplete="off" spellCheck={false} />
+              aria-label={t("diff.search")} aria-describedby={searchDescriptionId} aria-keyshortcuts="Control+f Meta+f"
+              placeholder={t("diff.searchPlaceholder")} autoComplete="off" spellCheck={false} />
           </label>
           <span className="diff-search-count" role="status" aria-live="polite" aria-atomic="true"
-            aria-label={!query ? "Arama metni girilmedi" : matches.length ? `Eşleşme ${matchIndex + 1}, ${limited ? "en az" : "toplam"} ${matches.length}` : "Eşleşme yok"}
-            title={!query ? "Aramak için metin girin" : matches.length ? `${matchIndex + 1} / ${totalLabel} eşleşme` : "Eşleşme yok"}>
-            {matchIndex + 1} / {totalLabel}
+            aria-label={!query ? t("diff.searchEmpty") : matches.length ? t(limited ? "diff.matchPositionLimited" : "diff.matchPosition", { current: currentMatchLabel, total: numberFormatter.format(matches.length) }) : t("diff.noMatches")}
+            title={!query ? t("diff.searchPrompt") : matches.length ? t("diff.matchCount", { current: currentMatchLabel, total: totalLabel }) : t("diff.noMatches")}>
+            {currentMatchLabel} / {totalLabel}
           </span>
           <button type="button" className="diff-nav-button" onClick={() => moveMatch(-1)} disabled={!matches.length}
-            aria-label="Önceki eşleşme" title="Önceki eşleşme (Shift+Enter / Shift+F3)"><ArrowUp size={14} /></button>
+            aria-label={t("diff.previousMatch")} title={t("diff.previousMatchHint")}><ArrowUp size={14} /></button>
           <button type="button" className="diff-nav-button" onClick={() => moveMatch(1)} disabled={!matches.length}
-            aria-label="Sonraki eşleşme" title="Sonraki eşleşme (Enter / F3)"><ArrowDown size={14} /></button>
+            aria-label={t("diff.nextMatch")} title={t("diff.nextMatchHint")}><ArrowDown size={14} /></button>
           <button type="button" className="diff-nav-button" onClick={clearSearch} disabled={!query}
-            aria-label="Fark aramasını temizle" title="Aramayı temizle (Escape)"><X size={13} /></button>
+            aria-label={t("diff.clearSearch")} title={t("diff.clearSearchHint")}><X size={13} /></button>
         </div>
-        <div className="diff-hunk-controls" role="group" aria-label="Değişiklik bölümleri">
-          <span className="diff-hunk-count" title={`${hunks.length} değişiklik bölümü`}>
-            Bölüm {hunkIndex < 0 ? "–" : hunkIndex + 1} / {hunks.length}
+        <div className="diff-hunk-controls" role="group" aria-label={t("diff.hunks")}>
+          <span className="diff-hunk-count" title={t(hunks.length === 1 ? "diff.hunkCountOne" : "diff.hunkCountMany", { count: numberFormatter.format(hunks.length) })}>
+            {t("diff.hunkPosition", { current: hunkIndex < 0 ? "–" : numberFormatter.format(hunkIndex + 1), total: numberFormatter.format(hunks.length) })}
           </span>
           <button type="button" className="diff-nav-button" onClick={() => moveHunk(-1)} disabled={!hunks.length}
-            aria-label="Önceki değişiklik bölümü" title="Önceki değişiklik bölümü"><ChevronsUp size={14} /></button>
+            aria-label={t("diff.previousHunk")} title={t("diff.previousHunk")}><ChevronsUp size={14} /></button>
           <button type="button" className="diff-nav-button" onClick={() => moveHunk(1)} disabled={!hunks.length}
-            aria-label="Sonraki değişiklik bölümü" title="Sonraki değişiklik bölümü"><ChevronsDown size={14} /></button>
+            aria-label={t("diff.nextHunk")} title={t("diff.nextHunk")}><ChevronsDown size={14} /></button>
         </div>
         <span id={searchDescriptionId} className="diff-view-line-description">
-          Görünen fark metninde büyük/küçük harf duyarsız, düz metin araması. Enter veya F3: sonraki; Shift ile önceki eşleşme.
+          {t("diff.searchDescription")}
         </span>
       </div>
       {partialSelection && (
-        <div className="diff-selection-toolbar" role="group" aria-label="Satır seçimi">
-          <span className="diff-selection-count" role="status" aria-live="polite" aria-atomic="true">{selectedIds.size} satır seçili</span>
+        <div className="diff-selection-toolbar" role="group" aria-label={t("diff.lineSelection")}>
+          <span className="diff-selection-count" role="status" aria-live="polite" aria-atomic="true">{t(selectedIds.size === 1 ? "diff.selectedLineCountOne" : "diff.selectedLineCountMany", { count: numberFormatter.format(selectedIds.size) })}</span>
           <div className="diff-selection-actions">
             <button type="button" className="diff-selection-button" onClick={clearSelection}
-              disabled={selectionBusy || !selectedIds.size} aria-label="Satır seçimini temizle">Temizle</button>
+              disabled={selectionBusy || !selectedIds.size} aria-label={t("diff.clearSelection")}>{t("diff.clear")}</button>
             <button type="button" className="diff-selection-button diff-selection-apply" onClick={() => applySelection([...selectedIds])}
               disabled={selectionBusy || !selectedIds.size || Boolean(unavailableReason)} aria-label={selectedActionLabel}>
               {submittingSelection && <LoaderCircle size={12} className="spin" aria-hidden="true" />}{actionLabel}
@@ -337,12 +347,12 @@ function TextDiffView({ result, partialSelection }: { result: DiffResult; partia
       <SelectionNotice reason={unavailableReason} />
       {selectionError && <div className="diff-selection-error" role="alert"><AlertCircle size={14} /><span>{selectionError}</span></div>}
       {result.truncated && (
-        <div className="diff-truncated"><TriangleAlert size={14} /> <span>Fark çıktısı kısaltıldı. Arama ve bölüm gezintisi yalnızca gösterilen kısımda.</span></div>
+        <div className="diff-truncated"><TriangleAlert size={14} /> <span>{t("diff.truncated")}</span></div>
       )}
       {limited && (
-        <div className="diff-search-limit" role="status"><TriangleAlert size={14} /> <span>İlk {matches.length.toLocaleString("tr-TR")} eşleşme gösteriliyor. Aramayı daraltın.</span></div>
+        <div className="diff-search-limit" role="status"><TriangleAlert size={14} /> <span>{t("diff.searchLimit", { count: numberFormatter.format(matches.length) })}</span></div>
       )}
-      <div className="diff-scroll" tabIndex={0} aria-label="Fark satırları" ref={scrollRef}>
+      <div className="diff-scroll" tabIndex={0} aria-label={t("diff.lines")} ref={scrollRef}>
         <div className={`diff-view-code${hasSelectionGutter ? " has-selection" : ""}`} style={codeStyle} ref={codeRef}>
           {lines.map((line, index) => {
             const hunkLineIds = hunkSelections.get(index) ?? [];
@@ -350,13 +360,13 @@ function TextDiffView({ result, partialSelection }: { result: DiffResult; partia
             const hunkNumber = line.kind === "hunk" ? hunks.indexOf(index) + 1 : 0;
             return (
             <div className={`diff-view-row diff-view-${line.kind}${index === hunks[hunkIndex] ? " is-current-hunk" : ""}${selectedIds.has(index) ? " is-selected-line" : ""}`} key={index} data-diff-line={index}>
-              <span className="diff-view-line-description">{lineDescription(line)}</span>
+              <span className="diff-view-line-description">{lineDescription(line, t, numberFormatter)}</span>
               {hasSelectionGutter && <span className="diff-selection-cell">
                 {selectableIds.has(index) ? (
-                  <SelectionCheckbox label={`${line.kind === "add" ? "Eklenen" : "Silinen"} satır ${line.newNumber ?? line.oldNumber} seç`}
+                  <SelectionCheckbox label={t(line.kind === "add" ? "diff.selectAddedLine" : "diff.selectRemovedLine", { line: numberFormatter.format((line.newNumber ?? line.oldNumber)!) })}
                     checked={selectedIds.has(index)} disabled={selectionBusy} onChange={(checked) => selectLines([index], checked)} />
                 ) : hunkLineIds.length > 0 ? (
-                  <SelectionCheckbox label={`${hunkNumber}. bölümün değişen satırlarını seç`}
+                  <SelectionCheckbox label={t("diff.selectHunk", { hunk: numberFormatter.format(hunkNumber) })}
                     checked={selectedHunkLineCount === hunkLineIds.length} mixed={selectedHunkLineCount > 0 && selectedHunkLineCount < hunkLineIds.length}
                     disabled={selectionBusy} onChange={(checked) => selectLines(hunkLineIds, checked)} />
                 ) : null}
@@ -366,8 +376,9 @@ function TextDiffView({ result, partialSelection }: { result: DiffResult; partia
               <span className="diff-view-marker" aria-hidden="true">{line.kind === "add" ? "+" : line.kind === "remove" ? "−" : ""}</span>
               {hunkLineIds.length > 0 && <span className="diff-hunk-selection-action">
                 <button type="button" className="diff-selection-button" onClick={() => applySelection(hunkLineIds)} disabled={selectionBusy}
-                  aria-label={`${hunkNumber}. bölümü ${actionLabel} yap`} title={`${hunkLineIds.length} değişen satır: ${actionLabel}`}>
-                  {actionLabel} bölüm
+                  aria-label={t("diff.applyHunk", { hunk: numberFormatter.format(hunkNumber), action: actionLabel })}
+                  title={t(hunkLineIds.length === 1 ? "diff.hunkActionTitleOne" : "diff.hunkActionTitleMany", { count: numberFormatter.format(hunkLineIds.length), action: actionLabel })}>
+                  {t("diff.hunkAction", { action: actionLabel })}
                 </button>
               </span>}
               <code>{highlightedLine(line.text, matchesByLine.get(index), matchIndex)}</code>

@@ -15,6 +15,7 @@ import {
   GitCommitHorizontal,
   GitFork,
   History,
+  Languages,
   LoaderCircle,
   Minus,
   Plus,
@@ -47,6 +48,9 @@ import {
   type RepositoryActionKind,
 } from "./repositoryActionModel";
 import { repositoryIdentity } from "./repositoryIdentity";
+import { getLocale, intlLocale, isLocale, translate, type Locale, type MessageParams } from "./i18n";
+import { useI18n } from "./useI18n";
+import { appMessages } from "./locales/app";
 import { defaultWorkspacePreferences, fitPanelWidths as constrainPanelWidths, loadWorkspacePreferences, saveWorkspacePreferences, type PanelWidths, type WorkspaceDensity } from "./workspacePreferences";
 import { filterFiles, findCommits, type FileStatusFilter } from "./workspaceSearch";
 import type { ChangedFile, CommitEntry, DiffResult, HistorySearchCursor, HistorySearchResult, MutationResult, PartialDiffResult, RepositorySnapshot } from "./types";
@@ -65,9 +69,21 @@ type DiffState = "idle" | "loading" | "ready" | "error";
 type WorkingMutationKind = "stage" | "unstage" | "commit";
 type MutationKind = WorkingMutationKind | RepositoryActionKind;
 
+type AppMessageKey = keyof typeof appMessages;
+type UiMessage = string | { key: AppMessageKey; params?: MessageParams }
+  | { failure: UiMessage; refreshFailure: UiMessage };
+
+const t = (key: AppMessageKey, params?: MessageParams): string => translate(appMessages, getLocale(), key, params);
+
+function displayMessage(message: UiMessage, locale: Locale = getLocale()): string {
+  if (typeof message === "string") return message;
+  if ("key" in message) return translate(appMessages, locale, message.key, message.params);
+  return translate(appMessages, locale, "refreshFailure", { error: displayMessage(message.failure, locale), refreshError: displayMessage(message.refreshFailure, locale) });
+}
+
 interface MutationFeedback {
   kind: "success" | "error";
-  message: string;
+  message: UiMessage;
   commitOid?: string | null;
   commitTreeChanged?: boolean;
   repositoryAction?: RepositoryAction;
@@ -106,13 +122,13 @@ interface HistorySearchState {
   complete: boolean;
   loading: boolean;
   stopped: boolean;
-  error: string | null;
+  error: UiMessage | null;
 }
 
-function errorText(error: unknown): string {
+function errorText(error: unknown): UiMessage {
   if (error instanceof Error && error.message.trim()) return error.message;
   if (typeof error === "string" && error.trim()) return error;
-  return "Beklenmeyen bir hata oluştu.";
+  return { key: "unexpectedError" };
 }
 
 function workingFileSelection(files: ChangedFile[], current: FileSelection): FileSelection {
@@ -179,8 +195,8 @@ function parentPath(path: string): string {
 
 function formatDate(value: string): string {
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value || "Tarih bilinmiyor";
-  return new Intl.DateTimeFormat("tr-TR", {
+  if (Number.isNaN(parsed.getTime())) return value || t("unknownDate");
+  return new Intl.DateTimeFormat(intlLocale(getLocale()), {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -196,23 +212,39 @@ function fileStatus(file: ChangedFile, layer: DiffLayer): string {
 
 function describeFileStatus(file: ChangedFile): string {
   const parts: string[] = [];
-  if (hasStatus(file.indexStatus)) parts.push(`Dizin: ${file.indexStatus.trim()}`);
-  if (hasStatus(file.worktreeStatus)) parts.push(`Çalışma ağacı: ${file.worktreeStatus.trim()}`);
-  return parts.length ? parts.join(" · ") : "Değişiklik durumu bilinmiyor";
+  if (hasStatus(file.indexStatus)) parts.push(t("indexStatus", { status: file.indexStatus.trim() }));
+  if (hasStatus(file.worktreeStatus)) parts.push(t("workingStatus", { status: file.worktreeStatus.trim() }));
+  return parts.length ? parts.join(" · ") : t("unknownStatus");
 }
 
 function BrowserRequired() {
+  const { t } = useI18n(appMessages);
   return (
     <main className="browser-required">
+      <LanguagePicker />
       <div className="browser-mark"><FolderGit2 size={27} strokeWidth={1.7} /></div>
-      <p className="eyebrow">ENOGRAM · YEREL GIT İNCELEYİCİSİ</p>
-      <h1>Enogram masaüstünde çalışır</h1>
+      <p className="eyebrow">{t("browserEyebrow")}</p>
+      <h1>{t("desktopRequired")}</h1>
       <p className="browser-copy">
-        Depo verileri, Git komutlarını çalıştıran Tauri masaüstü çekirdeğinden okunur. Bu web önizlemesi
-        bilgisayarınızdaki dosyalara erişmez.
-      </p>
-      <div className="browser-note"><CircleDot size={15} /> Depo verisi gösterilmiyor</div>
+        {t("browserCopy")} </p>
+      <div className="browser-note"><CircleDot size={15} /> {t("noRepositoryData")}</div>
     </main>
+  );
+}
+
+function LanguagePicker() {
+  const { locale, setLocale, localeSaved, t } = useI18n(appMessages);
+  return (
+    <label className={`language-picker${localeSaved ? "" : " unsaved"}`} title={localeSaved ? t("language") : t("languageNotSaved")}>
+      <Languages size={14} aria-hidden="true" />
+      <select aria-label={t("language")} value={locale} onChange={(event) => {
+        if (isLocale(event.target.value)) setLocale(event.target.value);
+      }}>
+        <option value="tr" lang="tr">Türkçe</option>
+        <option value="en" lang="en">English</option>
+      </select>
+      {!localeSaved && <span className="language-save-warning" role="status">{t("languageNotSaved")}</span>}
+    </label>
   );
 }
 
@@ -222,12 +254,13 @@ function App() {
 }
 
 function RepositoryApp() {
+  const { t } = useI18n(appMessages);
   const [initialWorkspace] = useState(initialWorkspacePreferences);
   const [startupPath] = useState(loadLastRepositoryPath);
   const [pathInput, setPathInput] = useState(startupPath);
   const [snapshot, setSnapshot] = useState<RepositorySnapshot | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<UiMessage | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
   const [mutationState, setMutationState] = useState<MutationKind | null>(null);
   const [mutationFeedback, setMutationFeedback] = useState<MutationFeedback | null>(null);
@@ -244,7 +277,7 @@ function RepositoryApp() {
   }, []);
   const [selectedCommitOid, setSelectedCommitOid] = useState<string | null>(null);
   const [commitFilesState, setCommitFilesState] = useState<CommitFilesState | null>(null);
-  const [commitFilesError, setCommitFilesError] = useState<string | null>(null);
+  const [commitFilesError, setCommitFilesError] = useState<UiMessage | null>(null);
   const [commitFilesReload, setCommitFilesReload] = useState(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(initialWorkspace.sidebarCollapsed);
   const [density, setDensity] = useState<WorkspaceDensity>(initialWorkspace.density);
@@ -260,7 +293,7 @@ function RepositoryApp() {
   const [historySearch, setHistorySearch] = useState<HistorySearchState | null>(null);
   const [diffResult, setDiffResult] = useState<DiffResult | null>(null);
   const [diffState, setDiffState] = useState<DiffState>("idle");
-  const [diffError, setDiffError] = useState<string | null>(null);
+  const [diffError, setDiffError] = useState<UiMessage | null>(null);
   const diffLineCount = useMemo(() => parseDiffLines(diffResult?.text ?? "").length, [diffResult?.text]);
   const pathInputRef = useRef<HTMLInputElement>(null);
   const fileSearchRef = useRef<HTMLInputElement>(null);
@@ -316,7 +349,7 @@ function RepositoryApp() {
     if (mutationInFlight.current) return;
     const normalizedPath = requestedPath.trim();
     if (!normalizedPath) {
-      setLoadError("Bir depo yolu girin.");
+      setLoadError({ key: "repositoryPathRequired" });
       setLoadState("error");
       return;
     }
@@ -432,7 +465,7 @@ function RepositoryApp() {
     currentSnapshot: RepositorySnapshot,
     command: string,
     args: Record<string, unknown>,
-    successMessage: string,
+    successMessage: UiMessage,
     repositoryAction?: RepositoryAction,
   ): Promise<MutationFeedback | null> => {
     // The ref closes the gap before React renders disabled controls; the snapshot
@@ -465,7 +498,7 @@ function RepositoryApp() {
       const feedback: MutationFeedback = {
         kind: "success",
         message: commitTreeChanged
-          ? "Commit oluşturuldu; commit sırasında stage edilen içerik değişti. Oluşturulan commit’i kontrol edin."
+          ? { key: "commitTreeChanged" }
           : successMessage,
         commitOid: result.commitOid,
         commitTreeChanged,
@@ -492,7 +525,7 @@ function RepositoryApp() {
         setSelectedPath(null);
         setLoadError(errorText(refreshError));
         setLoadState("error");
-        feedback = { kind: "error", message: `${message}\nDepo durumu yenilenemedi: ${errorText(refreshError)}`, repositoryAction };
+        feedback = { kind: "error", message: { failure: message, refreshFailure: errorText(refreshError) }, repositoryAction };
         setMutationFeedback(feedback);
       }
       return feedback;
@@ -521,7 +554,7 @@ function RepositoryApp() {
       currentSnapshot,
       kind === "commit" ? "commit_index" : kind === "stage" ? "stage_paths" : "unstage_paths",
       kind === "commit" ? { ...target, message: commitMessage } : { ...target, paths },
-      kind === "commit" ? "Commit oluşturuldu." : kind === "stage" ? `${paths.length} dosya stage edildi.` : `${paths.length} dosya unstage edildi.`,
+      { key: kind === "commit" ? "commitCreated" : kind === "stage" ? "filesStaged" : "filesUnstaged", params: { count: paths.length } },
     );
   };
 
@@ -548,7 +581,7 @@ function RepositoryApp() {
         selectionToken: selection.selectionToken,
         lineIds,
       },
-      `${lineIds.length} değişiklik satırı ${preview.staged ? "unstage" : "stage"} edildi.`,
+      { key: preview.staged ? "linesUnstaged" : "linesStaged", params: { count: lineIds.length } },
     );
   };
 
@@ -557,8 +590,11 @@ function RepositoryApp() {
     if (!currentSnapshot || action.repoPath !== currentSnapshot.repoPath
       || action.expectedToken !== currentSnapshot.mutationToken) return null;
     const { command, args } = repositoryActionCommand(action);
-    const feedback = await executeMutation(action.kind, currentSnapshot, command, args, repositoryActionSuccess(action), action);
-    return feedback ? { kind: feedback.kind, message: feedback.message, repositoryAction: action } : null;
+    const feedback = await executeMutation(action.kind, currentSnapshot, command, args, repositoryActionSuccess(action, getLocale()), action);
+    return feedback ? {
+      kind: feedback.kind, message: displayMessage(feedback.message), repositoryAction: action,
+      localizedMessage: { tr: displayMessage(feedback.message, "tr"), en: displayMessage(feedback.message, "en") },
+    } : null;
   };
 
   useEffect(() => {
@@ -873,19 +909,19 @@ function RepositoryApp() {
           <FolderGit2 className="repo-path-icon" size={16} />
           <input
             ref={pathInputRef}
-            aria-label="Depo yolu"
+            aria-label={t("repositoryPath")}
             spellCheck={false}
             disabled={targetsLocked}
             value={pathInput}
-            placeholder="Yerel Git deposunun yolunu girin"
+            placeholder={t("repositoryPathPlaceholder")}
             onChange={(event) => {
               if (!mutationInFlight.current && !repositoryLoadInFlight.current) setPathInput(event.target.value);
             }}
-            title="Açılacak yerel depo klasörünün yolu"
+            title={t("repositoryPathTitle")}
           />
           <button className="open-button" type="submit" disabled={targetsLocked}>
             {loadState === "loading" ? <LoaderCircle className="spin" size={14} /> : <ChevronDown size={14} />}
-            <span>Aç</span>
+            <span>{t("open")}</span>
           </button>
         </form>
 
@@ -896,7 +932,10 @@ function RepositoryApp() {
           canMutate={canMutate}
           refreshing={loadState === "refreshing"}
           activeAction={activeRepositoryAction}
-          feedback={mutationFeedback?.repositoryAction ? { kind: mutationFeedback.kind, message: mutationFeedback.message, repositoryAction: mutationFeedback.repositoryAction } : null}
+          feedback={mutationFeedback?.repositoryAction ? {
+            kind: mutationFeedback.kind, message: displayMessage(mutationFeedback.message), repositoryAction: mutationFeedback.repositoryAction,
+            localizedMessage: { tr: displayMessage(mutationFeedback.message, "tr"), en: displayMessage(mutationFeedback.message, "en") },
+          } : null}
           onExecute={runRepositoryAction}
           onDismissFeedback={() => setMutationFeedback(null)}
           onRefresh={refreshRepository}
@@ -905,18 +944,19 @@ function RepositoryApp() {
           onDensityChange={setDensity}
           onResetLayout={resetWorkspaceLayout}
         />
+        <LanguagePicker />
       </header>
 
       <div className="workspace" ref={layoutRef} style={gridStyle}>
         <aside className={`sidebar ${isSidebarCollapsed ? "collapsed" : ""}`}>
           <div className="sidebar-heading">
-            {!isSidebarCollapsed && <span>GEZİNME</span>}
+            {!isSidebarCollapsed && <span>{t("navigation")}</span>}
             <button
               className="subtle-icon-button"
               type="button"
               onClick={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
-              title={isSidebarCollapsed ? "Kenar çubuğunu aç" : "Kenar çubuğunu daralt"}
-              aria-label={isSidebarCollapsed ? "Kenar çubuğunu aç" : "Kenar çubuğunu daralt"}
+              title={isSidebarCollapsed ? t("expandSidebar") : t("collapseSidebar")}
+              aria-label={isSidebarCollapsed ? t("expandSidebar") : t("collapseSidebar")}
             >
               {isSidebarCollapsed ? <SidebarOpen size={15} /> : <SidebarClose size={15} />}
             </button>
@@ -924,63 +964,63 @@ function RepositoryApp() {
 
           {!isSidebarCollapsed ? (
             <>
-              <div className="sidebar-section-label"><span>YEREL DEPO</span><span className="section-count">{snapshot ? "1" : "0"}</span></div>
+              <div className="sidebar-section-label"><span>{t("localRepositoryHeading")}</span><span className="section-count">{snapshot ? "1" : "0"}</span></div>
               <div className={`repo-tree-item ${snapshot ? "selected" : ""}`} title={snapshot?.repoPath ?? pathInput}>
                 <FolderGit2 size={16} />
-                <span className="tree-primary">{snapshot?.repoName || (isRepositoryBusy ? "Depo okunuyor…" : "Depo açık değil")}</span>
+                <span className="tree-primary">{snapshot?.repoName || (isRepositoryBusy ? t("readingRepository") : t("noRepository"))}</span>
                 {snapshot?.branch && <span className="tree-branch">{snapshot.branch}</span>}
               </div>
 
               <div className="sidebar-section-label worktree-label">
-                <span>ÇALIŞMA AĞAÇLARI</span>
+                <span>{t("worktreesHeading")}</span>
                 {snapshot && <span className="section-count">{snapshot.worktrees.length}</span>}
               </div>
               {snapshot?.worktrees.length ? (
-                <div className="worktree-list" ref={worktreeListRef} tabIndex={-1} aria-label="Çalışma ağaçları">
+                <div className="worktree-list" ref={worktreeListRef} tabIndex={-1} aria-label={t("worktrees")}>
                   {snapshot.worktrees.map((worktree) => {
                     const isCurrent = repositoryIdentity(worktree.path) === repositoryIdentity(snapshot.repoPath);
                     return (
-                      <button className={`worktree-item ${isCurrent ? "current" : ""}`} type="button" key={worktree.path} title={worktree.isBare ? `${worktree.path} — Çalışma dizini yok` : worktree.path}
-                        aria-label={`Çalışma ağacını aç: ${worktree.path}`} aria-current={isCurrent ? "true" : undefined}
+                      <button className={`worktree-item ${isCurrent ? "current" : ""}`} type="button" key={worktree.path} title={worktree.isBare ? t("bareWorktree", { path: worktree.path }) : worktree.path}
+                        aria-label={t("openWorktree", { path: worktree.path })} aria-current={isCurrent ? "true" : undefined}
                         disabled={targetsLocked || worktree.isBare || isCurrent}
                         onClick={() => { if (!mutationInFlight.current && !repositoryLoadInFlight.current && !worktree.isBare && !isCurrent) void openRepository(worktree.path); }}>
                         <GitBranch size={14} />
                         <div className="worktree-copy">
-                          <span>{worktree.branch || (worktree.isDetached ? "Ayrık HEAD" : "Dal yok")}</span>
+                          <span>{worktree.branch || (worktree.isDetached ? t("detachedHead") : t("noBranch"))}</span>
                           <small>{basename(worktree.path)}</small>
                         </div>
-                        {isCurrent && <span className="current-indicator" aria-label="Açık depo"><Check size={11} /></span>}
+                        {isCurrent && <span className="current-indicator" aria-label={t("currentRepository")}><Check size={11} /></span>}
                       </button>
                     );
                   })}
                 </div>
               ) : snapshot ? (
-                <div className="sidebar-empty">Çalışma ağacı bilgisi yok</div>
+                <div className="sidebar-empty">{t("noWorktreeInfo")}</div>
               ) : null}
 
               <div className="sidebar-bottom">
                 <div className="connection-card">
                   <div className="connection-icon"><Activity size={15} /></div>
                   <div>
-                    <strong>Yerel Git</strong>
-                    <span>{snapshot?.gitVersion || "Sürüm bilgisi bekleniyor"}</span>
+                    <strong>{t("localGit")}</strong>
+                    <span>{snapshot?.gitVersion || t("waitingVersion")}</span>
                   </div>
                   <span className={`connection-dot ${snapshot ? "online" : "offline"}`} />
                 </div>
-                <button className="remote-sidebar-action" type="button" aria-label="Uzak depoları yönet" disabled={!canMutate || targetsLocked} onClick={() => setRemoteManagerRequest((request) => request + 1)}>
-                  <span><FolderGit2 size={14} /> Uzak depolar</span><span>{snapshot ? snapshot.remotes.length ? `${snapshot.remotes.length} tanımlı` : "Ekle" : "Depo bekleniyor"}</span>
+                <button className="remote-sidebar-action" type="button" aria-label={t("manageRemotes")} disabled={!canMutate || targetsLocked} onClick={() => setRemoteManagerRequest((request) => request + 1)}>
+                  <span><FolderGit2 size={14} /> {t("remotes")}</span><span>{snapshot ? snapshot.remotes.length ? t("configuredRemotes", { count: snapshot.remotes.length }) : t("add") : t("waitingRepository")}</span>
                 </button>
-                <div className="future-card" title="Yerel MCP erişimi Codex veya Claude ayarlarından yönetilir. Bu pencere istemci bağlantı durumunu izlemez.">
-                  <div><span className="future-bullet" /> Codex / Claude</div><span>Yerel MCP</span>
+                <div className="future-card" title={t("mcpDescription")}>
+                  <div><span className="future-bullet" /> Codex / Claude</div><span>{t("localMcp")}</span>
                 </div>
-                {snapshot && !snapshot.remotes.length && <p className="remote-setup-hint">Fetch, Pull ve Push için Uzak depolar bölümünden bir adres ekleyin.</p>}
+                {snapshot && !snapshot.remotes.length && <p className="remote-setup-hint">{t("remoteSetupHint")}</p>}
               </div>
             </>
           ) : (
             <div className="collapsed-sidebar-icons">
-              <button type="button" title={snapshot?.repoName || "Yerel depo"} aria-label="Depo yoluna git" disabled={targetsLocked} onClick={() => { if (!mutationInFlight.current && !repositoryLoadInFlight.current) { pathInputRef.current?.focus(); pathInputRef.current?.select(); } }}><FolderGit2 size={18} /></button>
-              <button type="button" title="Çalışma ağaçları" aria-label="Çalışma ağaçlarını göster" onClick={() => { revealWorktrees.current = true; setIsSidebarCollapsed(false); }}><GitBranch size={18} /></button>
-              <div className={`connection-dot ${snapshot ? "online" : "offline"}`} title="Yerel Git" />
+              <button type="button" title={snapshot?.repoName || t("localRepository")} aria-label={t("focusRepositoryPath")} disabled={targetsLocked} onClick={() => { if (!mutationInFlight.current && !repositoryLoadInFlight.current) { pathInputRef.current?.focus(); pathInputRef.current?.select(); } }}><FolderGit2 size={18} /></button>
+              <button type="button" title={t("worktrees")} aria-label={t("showWorktrees")} onClick={() => { revealWorktrees.current = true; setIsSidebarCollapsed(false); }}><GitBranch size={18} /></button>
+              <div className={`connection-dot ${snapshot ? "online" : "offline"}`} title={t("localGit")} />
             </div>
           )}
         </aside>
@@ -988,7 +1028,7 @@ function RepositoryApp() {
         <div
           className="resize-handle"
           role="separator"
-          aria-label="Kenar çubuğu genişliği"
+          aria-label={t("sidebarWidth")}
           aria-orientation="vertical"
           tabIndex={0}
           onPointerDown={(event) => startResize("sidebar", event)}
@@ -997,7 +1037,7 @@ function RepositoryApp() {
 
         <main className={`center-panel ${viewScope === "working" ? "working-scope" : ""} ${snapshot?.isUnborn && snapshot.commits.length === 0 && viewScope === "working" ? "unborn-working" : ""}`}>
           <div className="panel-toolbar history-toolbar">
-            <div className="scope-tabs" role="tablist" aria-label="İçerik kapsamı">
+            <div className="scope-tabs" role="tablist" aria-label={t("viewScope")}>
               <button
                 className={viewScope === "working" ? "active" : ""}
                 type="button"
@@ -1006,7 +1046,7 @@ function RepositoryApp() {
                 disabled={targetsLocked}
                 onClick={() => changeScope("working")}
               >
-                <FileDiff size={14} /> Çalışma <span className="tab-count">{snapshot?.changes.length ?? 0}</span>
+                <FileDiff size={14} /> {t("working")} <span className="tab-count">{snapshot?.changes.length ?? 0}</span>
               </button>
               <button
                 className={viewScope === "history" ? "active" : ""}
@@ -1016,19 +1056,18 @@ function RepositoryApp() {
                 disabled={targetsLocked}
                 onClick={() => changeScope("history")}
               >
-                <History size={14} /> Geçmiş
-              </button>
+                <History size={14} /> {t("history")} </button>
             </div>
-            <button className="toolbar-icon" type="button" onClick={refreshRepository} disabled={targetsLocked} aria-label="Geçmişi ve durumu yenile" title="Geçmişi ve durumu yenile">
+            <button className="toolbar-icon" type="button" onClick={refreshRepository} disabled={targetsLocked} aria-label={t("refresh")} title={t("refresh")}>
               <RefreshCw size={14} />
             </button>
           </div>
 
-          <section className="history-section" aria-label="Commit geçmişi">
-            <div className="section-title-row history-search-bar" role="search" aria-label="Tüm geçmişte arama">
+          <section className="history-section" aria-label={t("commitHistory")}>
+            <div className="section-title-row history-search-bar" role="search" aria-label={t("historySearch")}>
               <History size={14} aria-hidden="true" />
-              <input ref={historySearchRef} aria-label="Commit ara" title="Tüm yerel geçmişte mesaj (başlık ve gövde), yazar/e-posta, SHA veya referans ara. Enter ile ara; Ctrl+Shift+F ile odaklan."
-                placeholder="Tüm geçmişte ara…" value={historyQuery} disabled={!snapshot || targetsLocked}
+              <input ref={historySearchRef} aria-label={t("searchCommits")} title={t("historySearchHelp")}
+                placeholder={t("historySearchPlaceholder")} value={historyQuery} disabled={!snapshot || targetsLocked}
                 onChange={(event) => { if (!mutationInFlight.current && !repositoryLoadInFlight.current) { invalidateHistorySearch(); setHistoryQuery(event.target.value); } }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
@@ -1038,32 +1077,32 @@ function RepositoryApp() {
                   }
                   if (event.key === "Escape") { event.preventDefault(); invalidateHistorySearch(); setHistoryQuery(""); }
                 }} />
-              <button type="button" className="search-icon" aria-label="Tüm geçmişte ara" title="Tüm yerel geçmişte ara" disabled={!snapshot || targetsLocked || !historyQuery.trim() || Boolean(historySearch?.loading)} onClick={() => void runHistorySearch()}><Search size={14} /></button>
+              <button type="button" className="search-icon" aria-label={t("searchAllHistory")} title={t("searchAllLocalHistory")} disabled={!snapshot || targetsLocked || !historyQuery.trim() || Boolean(historySearch?.loading)} onClick={() => void runHistorySearch()}><Search size={14} /></button>
               {historyQuery.trim() ? <>
-                {historySearch && <span className="search-count" aria-label={`${historyMatches.length} sonuç bu sayfada`}>{historyMatchIndex + 1}/{historyMatches.length}</span>}
-                <button type="button" className="search-icon" title="Önceki eşleşme (Shift+Enter)" aria-label="Önceki commit eşleşmesi" disabled={targetsLocked || !historySearch || Boolean(historySearch.error) || !historyMatches.length} onClick={() => revealHistoryMatch(-1)}><ChevronUp size={14} /></button>
-                <button type="button" className="search-icon" title="Sonraki eşleşme (Enter)" aria-label="Sonraki commit eşleşmesi" disabled={targetsLocked || !historySearch || Boolean(historySearch.error) || !historyMatches.length} onClick={() => revealHistoryMatch(1)}><ChevronDown size={14} /></button>
-                <button type="button" className="search-icon" aria-label="Commit aramasını temizle" title="Aramayı temizle ve grafiğe dön" disabled={targetsLocked} onClick={() => { invalidateHistorySearch(); setHistoryQuery(""); }}><X size={13} /></button>
-              </> : <span className="history-count" title="Grafikte yüklenen son commit sayısı">{snapshot?.commits.length ?? 0}</span>}
+                {historySearch && <span className="search-count" aria-label={t("resultsOnPage", { count: historyMatches.length })}>{historyMatchIndex + 1}/{historyMatches.length}</span>}
+                <button type="button" className="search-icon" title={t("previousMatchHelp")} aria-label={t("previousCommitMatch")} disabled={targetsLocked || !historySearch || Boolean(historySearch.error) || !historyMatches.length} onClick={() => revealHistoryMatch(-1)}><ChevronUp size={14} /></button>
+                <button type="button" className="search-icon" title={t("nextMatchHelp")} aria-label={t("nextCommitMatch")} disabled={targetsLocked || !historySearch || Boolean(historySearch.error) || !historyMatches.length} onClick={() => revealHistoryMatch(1)}><ChevronDown size={14} /></button>
+                <button type="button" className="search-icon" aria-label={t("clearCommitSearch")} title={t("backToGraph")} disabled={targetsLocked} onClick={() => { invalidateHistorySearch(); setHistoryQuery(""); }}><X size={13} /></button>
+              </> : <span className="history-count" title={t("loadedCommitCount")}>{snapshot?.commits.length ?? 0}</span>}
             </div>
             {historySearch ? <>
               <div className="history-search-progress" role="status">
-                <span>{historySearch.error ? "Arama tamamlanamadı" : historySearch.loading ? "Taranıyor" : historySearch.stopped ? "Durduruldu" : historySearch.complete ? "Tarama tamamlandı" : "Diğer sonuçlar var"} · {historySearch.scannedCount} commit</span>
-                {historySearch.loading ? <button type="button" onClick={stopHistorySearch}>Durdur</button> : <>
-                  <button type="button" aria-label="Önceki sonuç sayfası" title="Önceki sonuç sayfası" disabled={targetsLocked || Boolean(historySearch.error) || !historySearch.previousStarts.length} onClick={() => void runHistorySearch("previous")}><ChevronUp size={13} /></button>
-                  <button type="button" aria-label={historySearch.stopped ? "Aramayı sürdür" : "Sonraki sonuç sayfası"} title={historySearch.stopped ? "Aramayı sürdür" : "Sonraki sonuç sayfası"} disabled={targetsLocked || Boolean(historySearch.error) || !historySearch.nextCursor && !historySearch.stopped} onClick={() => void runHistorySearch(historySearch.stopped ? "resume" : "next")}><ChevronDown size={13} /></button>
+                <span>{historySearch.error ? t("searchFailed") : historySearch.loading ? t("searching") : historySearch.stopped ? t("stopped") : historySearch.complete ? t("searchComplete") : t("moreResults")} · {historySearch.scannedCount} commit</span>
+                {historySearch.loading ? <button type="button" onClick={stopHistorySearch}>{t("stop")}</button> : <>
+                  <button type="button" aria-label={t("previousPage")} title={t("previousPage")} disabled={targetsLocked || Boolean(historySearch.error) || !historySearch.previousStarts.length} onClick={() => void runHistorySearch("previous")}><ChevronUp size={13} /></button>
+                  <button type="button" aria-label={historySearch.stopped ? t("resumeSearch") : t("nextPage")} title={historySearch.stopped ? t("resumeSearch") : t("nextPage")} disabled={targetsLocked || Boolean(historySearch.error) || !historySearch.nextCursor && !historySearch.stopped} onClick={() => void runHistorySearch(historySearch.stopped ? "resume" : "next")}><ChevronDown size={13} /></button>
                 </>}
               </div>
-              <div className="history-search-results" ref={historyResultsRef} role="region" aria-label="Tüm geçmiş arama sonuçları">
-                {historySearch.error && <div className="history-search-message error-message" role="alert">{historySearch.error}<button type="button" disabled={targetsLocked} onClick={() => void runHistorySearch()}>Yeniden ara</button></div>}
+              <div className="history-search-results" ref={historyResultsRef} role="region" aria-label={t("historySearchResults")}>
+                {historySearch.error && <div className="history-search-message error-message" role="alert">{displayMessage(historySearch.error)}<button type="button" disabled={targetsLocked} onClick={() => void runHistorySearch()}>{t("searchAgain")}</button></div>}
                 {!historySearch.commits.length && !historySearch.error && <div className="history-search-message">
-                  {historySearch.loading ? <><LoaderCircle className="spin" size={14} /> Geçmiş taranıyor…</> : historySearch.complete ? "Tüm yerel geçmiş tarandı; eşleşen commit bulunamadı." : "Arama durduruldu. Devam edebilir veya yeniden arayabilirsiniz."}
+                  {historySearch.loading ? <><LoaderCircle className="spin" size={14} /> {t("searchingHistory")}</> : historySearch.complete ? t("noMatchingCommits") : t("searchStoppedHint")}
                 </div>}
                 {historySearch.commits.map((commit) => <button key={commit.oid} type="button" className="history-search-result" disabled={targetsLocked || Boolean(historySearch.error)}
                   aria-pressed={viewScope === "history" && selectedCommitOid === commit.oid} aria-current={historyRevealOid === commit.oid ? "true" : undefined}
                   title={`${commit.subject}\n${commit.oid}\n${commit.author} · ${formatDate(commit.date)}\n${commit.refs}`}
                   onClick={() => { if (!targetsLocked) { setHistoryRevealOid(commit.oid); selectCommit(commit); } }}>
-                  <span className="history-result-subject">{commit.subject || "(Başlıksız commit)"}</span>
+                  <span className="history-result-subject">{commit.subject || t("untitledCommit")}</span>
                   <span className="history-result-meta"><code>{shortOid(commit.oid)}</code><span>{commit.author}</span><span>{formatDate(commit.date)}</span></span>
                   {commit.refs && <span className="history-result-refs">{commit.refs}</span>}
                 </button>)}
@@ -1081,70 +1120,70 @@ function RepositoryApp() {
             ) : (
               <div className="commit-list">
                 {loadState === "idle" && (
-                  <div className="history-empty"><FolderGit2 size={20} /><span>Başlamak için bir depo açın.</span></div>
+                  <div className="history-empty"><FolderGit2 size={20} /><span>{t("openToStart")}</span></div>
                 )}
                 {loadState === "loading" && <LoadingRows />}
                 {snapshot?.isUnborn && loadState === "ready" && (
-                  <div className="history-empty"><GitCommitHorizontal size={20} /><span>Henüz ilk commit yok.</span></div>
+                  <div className="history-empty"><GitCommitHorizontal size={20} /><span>{t("noFirstCommit")}</span></div>
                 )}
                 {snapshot && !snapshot.isUnborn && loadState === "ready" && (
-                  <div className="history-empty"><History size={18} /><span>Geçmiş girdisi bulunamadı.</span></div>
+                  <div className="history-empty"><History size={18} /><span>{t("noHistory")}</span></div>
                 )}
               </div>
             )}
-            {loadState === "error" && <InlineError message={loadError ?? "Depo okunamadı."} onRetry={refreshRepository} />}
+            {loadState === "error" && <InlineError message={loadError ? displayMessage(loadError) : t("repositoryReadFailed")} onRetry={refreshRepository} />}
           </section>
 
-          <section className="files-section" aria-label={viewScope === "working" ? "Çalışma ağacı dosyaları" : "Commit dosyaları"}>
+          <section className="files-section" aria-label={viewScope === "working" ? t("workingFiles") : t("commitFiles")}>
             <div className="files-section-header">
               <div className="files-heading">
-                <span>{viewScope === "working" ? "DEĞİŞİKLİKLER" : "COMMIT DOSYALARI"}</span>
-                <span className="section-count" title="Görünen / toplam dosya">{fileFilterActive ? `${visibleFiles.length}/${totalFiles}` : totalFiles}</span>
+                <span>{viewScope === "working" ? t("changesHeading") : t("commitFilesHeading")}</span>
+                <span className="section-count" title={t("visibleTotalFiles")}>{fileFilterActive ? `${visibleFiles.length}/${totalFiles}` : totalFiles}</span>
               </div>
               {viewScope === "working" ? (
-                <div className="change-summary" title="Bir dosya hem stage edilmiş hem çalışma ağacında değişmiş olabilir.">
-                  <span className="index-count" aria-label={`${stagedCount} stage edilmiş dosya`}><span className="mini-mark">S</span>Stage {stagedCount}</span>
-                  <span className="worktree-count" aria-label={`${unstagedCount} çalışma ağacı dosyası`}><span className="mini-mark">W</span>Çalışma {unstagedCount}</span>
+                <div className="change-summary" title={t("bothLayersHint")}>
+                  <span className="index-count" aria-label={t("stagedFilesCount", { count: stagedCount })}><span className="mini-mark">S</span>{t("stagedShort")} {stagedCount}</span>
+                  <span className="worktree-count" aria-label={t("workingFilesCount", { count: unstagedCount })}><span className="mini-mark">W</span>{t("working")} {unstagedCount}</span>
                 </div>
               ) : selectedCommit && <span className="commit-file-oid">{shortOid(selectedCommit.oid)}</span>}
             </div>
-            <div className="file-filter-bar" role="search" aria-label="Dosya filtreleri">
-              <label className="file-search"><Search size={13} aria-hidden="true" /><input ref={fileSearchRef} aria-label="Dosya ara" title="Dosya adı veya yol (Ctrl+F)" placeholder="Dosya veya yol…" value={fileQuery} disabled={!snapshot || targetsLocked}
+            <div className="file-filter-bar" role="search" aria-label={t("fileFilters")}>
+              <label className="file-search"><Search size={13} aria-hidden="true" /><input ref={fileSearchRef} aria-label={t("searchFiles")} title={t("fileSearchHelp")} placeholder={t("fileSearchPlaceholder")} value={fileQuery} disabled={!snapshot || targetsLocked}
                 onChange={(event) => { if (!mutationInFlight.current && !repositoryLoadInFlight.current) setFileQuery(event.target.value); }}
                 onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setFileQuery(""); setFileStatusFilter("all"); } }} /></label>
-              {viewScope === "working" && <select aria-label="Dosya durumu" value={fileStatusFilter} disabled={!snapshot || targetsLocked}
+              {viewScope === "working" && <select aria-label={t("fileStatus")} value={fileStatusFilter} disabled={!snapshot || targetsLocked}
                 onChange={(event) => { if (!mutationInFlight.current && !repositoryLoadInFlight.current) setFileStatusFilter(event.target.value as FileStatusFilter); }}>
-                <option value="all">Tümü</option><option value="working">Çalışma (W)</option><option value="staged">Stage (S)</option><option value="conflicts">Çakışmalar</option>
+                <option value="all">{t("all")}</option><option value="working">{t("workingFilter")}</option><option value="staged">{t("stagedFilter")}</option><option value="conflicts">{t("conflicts")}</option>
               </select>}
-              {fileFilterActive && <button type="button" className="search-icon" aria-label="Dosya filtrelerini temizle" disabled={targetsLocked} onClick={() => { setFileQuery(""); setFileStatusFilter("all"); }}><X size={13} /></button>}
+              {fileFilterActive && <button type="button" className="search-icon" aria-label={t("clearFileFilters")} disabled={targetsLocked} onClick={() => { setFileQuery(""); setFileStatusFilter("all"); }}><X size={13} /></button>}
             </div>
             {viewScope === "working" && (
-              <div className="bulk-actions" role="group" aria-label={fileFilterActive ? "Görünen dosyalar için stage işlemleri" : "Tüm dosyalar için stage işlemleri"}>
+              <div className="bulk-actions" role="group" aria-label={fileFilterActive ? t("visibleStageActions") : t("allStageActions")}>
                 <button
                   className="change-action"
                   type="button"
                   disabled={!canMutate || visibleStagePaths.length === 0}
                   onClick={() => void runMutation("stage")}
-                  title={`${visibleStagePaths.length} görünen uygun dosyayı stage et${conflictCount ? "; çakışmalı dosyalar hariç" : ""}`}
-                ><Plus size={13} />{fileFilterActive ? "Görünenleri stage et" : "Tümünü stage et"}<span className="action-count">{visibleStagePaths.length}</span></button>
+                  title={t("stageVisibleHelp", { count: visibleStagePaths.length, conflicts: conflictCount ? t("excludingConflicts") : "" })}
+                ><Plus size={13} />{fileFilterActive ? t("stageVisible") : t("stageAll")}<span className="action-count">{visibleStagePaths.length}</span></button>
                 <button
                   className="change-action"
                   type="button"
                   disabled={!canMutate || visibleUnstagePaths.length === 0}
                   onClick={() => void runMutation("unstage")}
-                  title={`${visibleUnstagePaths.length} görünen uygun dosyayı unstage et${conflictCount ? "; çakışmalı dosyalar hariç" : ""}`}
-                ><Minus size={13} />{fileFilterActive ? "Görünenleri unstage et" : "Tümünü unstage et"}<span className="action-count">{visibleUnstagePaths.length}</span></button>
+                  title={t("unstageVisibleHelp", { count: visibleUnstagePaths.length, conflicts: conflictCount ? t("excludingConflicts") : "" })}
+                ><Minus size={13} />{fileFilterActive ? t("unstageVisible") : t("unstageAll")}<span className="action-count">{visibleUnstagePaths.length}</span></button>
               </div>
             )}
             {viewScope === "history" && (
               <div className="selected-commit-banner">
                 {selectedCommit ? (
                   <><GitCommitHorizontal size={14} /><span>{selectedCommit.subject}</span></>
-                ) : <span>Dosyalarını incelemek için geçmişten bir commit seçin.</span>}
+                ) : <span>{t("selectCommitForFiles")}</span>}
               </div>
             )}
             <div className="file-list-header">
-              <span>Durum</span><span>Dosya</span><span>Yol</span>
+              <span>{t("status")}</span><span>{t("file")}</span><span>{t("path")}</span>
             </div>
             <div className="file-list">
               {visibleFiles.map((file) => (
@@ -1158,38 +1197,38 @@ function RepositoryApp() {
                   onSelect={() => viewScope === "working" ? selectWorkingFile(file) : selectHistoryFile(file)}
                 />
               ))}
-              {fileFilterActive && totalFiles > 0 && visibleFiles.length === 0 && <div className="file-empty" role="status"><Search size={16} /><span>Bu filtreyle eşleşen dosya yok.</span></div>}
+              {fileFilterActive && totalFiles > 0 && visibleFiles.length === 0 && <div className="file-empty" role="status"><Search size={16} /><span>{t("noMatchingFiles")}</span></div>}
               {viewScope === "working" && snapshot && totalFiles === 0 && loadState === "ready" && (
-                <div className="file-empty"><Check size={16} /><span>Çalışma ağacı temiz.</span></div>
+                <div className="file-empty"><Check size={16} /><span>{t("cleanWorkingTree")}</span></div>
               )}
-              {viewScope === "working" && !snapshot && loadState === "loading" && <div className="file-placeholder">Durum okunuyor…</div>}
+              {viewScope === "working" && !snapshot && loadState === "loading" && <div className="file-placeholder">{t("readingStatus")}</div>}
               {viewScope === "history" && !selectedCommit && (
-                <div className="file-empty"><History size={17} /><span>Commit seçilmedi.</span></div>
+                <div className="file-empty"><History size={17} /><span>{t("noCommitSelected")}</span></div>
               )}
               {viewScope === "history" && selectedCommit && !selectedCommitFiles && !commitFilesError && (
-                <div className="file-placeholder"><LoaderCircle className="spin" size={14} /> Commit dosyaları okunuyor…</div>
+                <div className="file-placeholder"><LoaderCircle className="spin" size={14} /> {t("readingCommitFiles")}</div>
               )}
               {viewScope === "history" && selectedCommitFiles && selectedCommitFiles.length === 0 && (
-                <div className="file-empty"><Check size={16} /><span>Bu commit'te dosya değişikliği yok.</span></div>
+                <div className="file-empty"><Check size={16} /><span>{t("noCommitChanges")}</span></div>
               )}
-              {viewScope === "history" && commitFilesError && <InlineError message={commitFilesError} onRetry={() => setCommitFilesReload((reload) => reload + 1)} />}
-              {loadState === "error" && viewScope === "working" && <div className="file-placeholder">Depo açılamadı.</div>}
+              {viewScope === "history" && commitFilesError && <InlineError message={displayMessage(commitFilesError)} onRetry={() => setCommitFilesReload((reload) => reload + 1)} />}
+              {loadState === "error" && viewScope === "working" && <div className="file-placeholder">{t("repositoryOpenFailed")}</div>}
             </div>
             <div className="files-footer">
               {viewScope === "working" ? (
                 <>
-                  <span><span className="footer-state staged-state" /> Stage edilmiş {stagedCount}</span>
-                  <span><span className="footer-state working-state" /> Çalışma ağacında {unstagedCount}</span>
+                  <span><span className="footer-state staged-state" /> {t("staged")} {stagedCount}</span>
+                  <span><span className="footer-state working-state" /> {t("inWorkingTree")} {unstagedCount}</span>
                 </>
-              ) : <span>{selectedCommit ? `${shortOid(selectedCommit.oid)} · ${formatDate(selectedCommit.date)}` : "Geçmiş kapsamı"}</span>}
+              ) : <span>{selectedCommit ? `${shortOid(selectedCommit.oid)} · ${formatDate(selectedCommit.date)}` : t("historyScope")}</span>}
             </div>
           </section>
 
           {viewScope === "working" && (
             <form className="commit-composer" onSubmit={(event) => { event.preventDefault(); void runMutation("commit"); }}>
               <div className="commit-composer-heading">
-                <label htmlFor="commit-message">Commit mesajı</label>
-                <span>{stagedCount} dosya stage edilmiş</span>
+                <label htmlFor="commit-message">{t("commitMessage")}</label>
+                <span>{t("stagedFileSummary", { count: stagedCount })}</span>
               </div>
               <textarea
                 id="commit-message"
@@ -1203,29 +1242,29 @@ function RepositoryApp() {
                   commitDrafts.current.set(repositoryIdentity(snapshot.repoPath), message);
                   setCommitMessage(message);
                 }}
-                placeholder="Değişikliği kısaca açıklayın…"
+                placeholder={t("commitPlaceholder")}
                 aria-describedby={snapshot?.mergeInProgress ? "commit-scope-hint commit-merge-hint" : "commit-scope-hint"}
               />
               <div className="commit-submit-row">
-                <span id="commit-scope-hint">{fileFilterActive ? "Filtre dışındakiler dahil tüm stage edilen dosyalar commit edilir." : "Yalnızca stage edilen dosyalar commit edilir."}</span>
+                <span id="commit-scope-hint">{fileFilterActive ? t("commitAllStagedHint") : t("commitStagedHint")}</span>
                 <button className="commit-button" type="submit" disabled={!canCommit}>
                   {mutationState === "commit" ? <LoaderCircle className="spin" size={14} /> : <GitCommitHorizontal size={14} />}
-                  {mutationState === "commit" ? "Commit ediliyor…" : "Commit"}
+                  {mutationState === "commit" ? t("committing") : "Commit"}
                 </button>
               </div>
               {snapshot?.mergeInProgress && (
-                <div className="mutation-progress" id="commit-merge-hint" role="status"><GitFork size={14} /><span>Merge bekliyor. Stage edilmiş değişiklik olmasa da commit ile tamamlayabilirsiniz.</span></div>
+                <div className="mutation-progress" id="commit-merge-hint" role="status"><GitFork size={14} /><span>{t("pendingMerge")}</span></div>
               )}
               {conflictCount > 0 && (
-                <div className="commit-conflict" role="status"><AlertCircle size={14} /><span>{conflictCount} çakışmalı dosya var. Commit için çakışmaları çözün. Toplu işlemler bu dosyaları atlar.</span></div>
+                <div className="commit-conflict" role="status"><AlertCircle size={14} /><span>{t("conflictWarning", { count: conflictCount })}</span></div>
               )}
               {isMutationBusy && !activeRepositoryAction && (
-                <div className="mutation-progress" role="status"><LoaderCircle className="spin" size={13} />{loadState === "refreshing" ? "Depo durumu yeniden okunuyor…" : mutationState === "commit" ? "Commit oluşturuluyor…" : mutationState === "stage" ? "Dosyalar stage ediliyor…" : "Dosyalar unstage ediliyor…"}</div>
+                <div className="mutation-progress" role="status"><LoaderCircle className="spin" size={13} />{loadState === "refreshing" ? t("refreshingStatus") : mutationState === "commit" ? t("creatingCommit") : mutationState === "stage" ? t("stagingFiles") : t("unstagingFiles")}</div>
               )}
               {mutationFeedback && !mutationFeedback.repositoryAction && (
                 <div className={`mutation-feedback ${mutationFeedback.commitTreeChanged ? "warning" : mutationFeedback.kind}`} role={mutationFeedback.kind === "error" || mutationFeedback.commitTreeChanged ? "alert" : "status"}>
                   {mutationFeedback.kind === "error" || mutationFeedback.commitTreeChanged ? <AlertCircle size={14} /> : <Check size={14} />}
-                  <span>{mutationFeedback.message}{mutationFeedback.commitOid && <> <code title={mutationFeedback.commitOid}>{shortOid(mutationFeedback.commitOid)}</code></>}</span>
+                  <span>{displayMessage(mutationFeedback.message)}{mutationFeedback.commitOid && <> <code title={mutationFeedback.commitOid}>{shortOid(mutationFeedback.commitOid)}</code></>}</span>
                 </div>
               )}
             </form>
@@ -1235,33 +1274,33 @@ function RepositoryApp() {
         <div
           className="resize-handle"
           role="separator"
-          aria-label="Geçmiş ve fark paneli genişliği"
+          aria-label={t("centerWidth")}
           aria-orientation="vertical"
           tabIndex={0}
           onPointerDown={(event) => startResize("center", event)}
           onKeyDown={(event) => keyboardResize("center", event)}
         />
 
-        <section className={`diff-panel ${viewScope === "working" ? "working-diff" : ""}`} aria-label="Seçili dosya farkı">
+        <section className={`diff-panel ${viewScope === "working" ? "working-diff" : ""}`} aria-label={t("selectedFileDiff")}>
           <div className="diff-panel-header">
             <div className="diff-context">
               <span className="diff-context-icon"><FileCode2 size={14} /></span>
               <div className="diff-heading-text">
                 <div className="diff-source">
                   {viewScope === "working"
-                    ? (diffLayer === "index" ? "DİZİN · HEAD İLE KARŞILAŞTIRMA" : "ÇALIŞMA AĞACI · DİZİN İLE KARŞILAŞTIRMA")
+                    ? (diffLayer === "index" ? t("indexDiffHeading") : t("workingDiffHeading"))
                     : selectedCommit?.parents.length
-                      ? "COMMIT · İLK EBEVEYN İLE KARŞILAŞTIRMA"
-                      : "İLK COMMIT · BOŞ AĞAÇ İLE KARŞILAŞTIRMA"}
+                      ? t("commitDiffHeading")
+                      : t("rootDiffHeading")}
                 </div>
-                <div className="diff-file-path" title={activeFile?.path ?? "Dosya seçilmedi"}>
-                  <strong>{activeFile ? basename(activeFile.path) : "Dosya seçilmedi"}</strong>
+                <div className="diff-file-path" title={activeFile?.path ?? t("noFileSelected")}>
+                  <strong>{activeFile ? basename(activeFile.path) : t("noFileSelected")}</strong>
                   {activeFile && parentPath(activeFile.path) && <span>{parentPath(activeFile.path)}</span>}
                 </div>
               </div>
             </div>
             {viewScope === "working" && activeFile && (
-              <div className="diff-layer-toggle" role="group" aria-label="Fark katmanı">
+              <div className="diff-layer-toggle" role="group" aria-label={t("diffLayer")}>
                 <button
                   className={diffLayer === "worktree" ? "active" : ""}
                   type="button"
@@ -1271,8 +1310,8 @@ function RepositoryApp() {
                     diffRequest.current += 1;
                     setDiffLayer("worktree");
                   }}
-                  title="Çalışma ağacı ile dizin arasındaki fark"
-                  aria-label="Çalışma ağacı farkını göster"
+                  title={t("workingDiffHelp")}
+                  aria-label={t("showWorkingDiff")}
                   aria-pressed={diffLayer === "worktree"}
                 >W</button>
                 <button
@@ -1284,8 +1323,8 @@ function RepositoryApp() {
                     diffRequest.current += 1;
                     setDiffLayer("index");
                   }}
-                  title="Dizin ile HEAD arasındaki fark"
-                  aria-label="Stage edilen farkı göster"
+                  title={t("indexDiffHelp")}
+                  aria-label={t("showStagedDiff")}
                   aria-pressed={diffLayer === "index"}
                 >S</button>
               </div>
@@ -1303,7 +1342,7 @@ function RepositoryApp() {
           {activeFile && viewScope === "history" && selectedCommit && (
             <div className="diff-status-strip history-diff-strip">
               <span className="commit-identity"><GitCommitHorizontal size={13} /> {shortOid(selectedCommit.oid)}</span>
-              <span>{selectedCommit.author || "Yazar bilinmiyor"}</span>
+              <span>{selectedCommit.author || t("unknownAuthor")}</span>
               <span className="history-date"><Clock3 size={12} />{formatDate(selectedCommit.date)}</span>
             </div>
           )}
@@ -1311,45 +1350,45 @@ function RepositoryApp() {
           {(!activeFile || (viewScope === "history" && !selectedCommit)) && <div className="diff-status-strip" />}
 
           {viewScope === "working" && (
-            <div className="selected-file-actions" role="group" aria-label="Seçili dosyanın stage işlemleri">
-              <span className="selected-action-label">Seçili dosya</span>
+            <div className="selected-file-actions" role="group" aria-label={t("selectedFileActions")}>
+              <span className="selected-action-label">{t("selectedFile")}</span>
               <button
                 className="change-action"
                 type="button"
                 disabled={!canMutate || selectedStagePaths.length === 0}
                 onClick={() => void runMutation("stage", true)}
-                aria-label="Seçili dosyayı stage et"
-                title={activeFile && isConflicted(activeFile) ? "Bu dosyada çözülmemiş çakışma var" : "Seçili dosyanın çalışma ağacı değişikliğini stage et"}
-              ><Plus size={13} />Stage et</button>
+                aria-label={t("stageSelectedFile")}
+                title={activeFile && isConflicted(activeFile) ? t("unresolvedFile") : t("stageSelectedHelp")}
+              ><Plus size={13} />{t("stage")}</button>
               <button
                 className="change-action"
                 type="button"
                 disabled={!canMutate || selectedUnstagePaths.length === 0}
                 onClick={() => void runMutation("unstage", true)}
-                aria-label="Seçili dosyayı unstage et"
-                title={activeFile && isConflicted(activeFile) ? "Bu dosyada çözülmemiş çakışma var" : "Seçili dosyayı unstage et; çalışma dosyasını koru"}
-              ><Minus size={13} />Unstage et</button>
+                aria-label={t("unstageSelectedFile")}
+                title={activeFile && isConflicted(activeFile) ? t("unresolvedFile") : t("unstageSelectedHelp")}
+              ><Minus size={13} />{t("unstage")}</button>
             </div>
           )}
 
           <div className="diff-content">
             {!snapshot && (loadState === "idle" || loadState === "error") ? (
               <div className="panel-message muted-message"><FolderGit2 size={20} /><span>{loadState === "error"
-                ? "Depo yolunu kontrol edin veya başka bir depo açın."
-                : "Üstteki alana yerel Git deposunun yolunu yazıp Aç’a basın."}</span></div>
+                ? t("checkRepositoryPath")
+                : t("enterRepositoryHint")}</span></div>
             ) : snapshot?.isUnborn && viewScope === "history" && !selectedCommit ? (
-              <div className="panel-message muted-message"><GitCommitHorizontal size={19} /> İlk commit henüz oluşturulmadı.</div>
+              <div className="panel-message muted-message"><GitCommitHorizontal size={19} /> {t("firstCommitNotCreated")}</div>
             ) : !activeFile && viewScope === "working" && snapshot?.changes.length === 0 && snapshot ? (
-              <div className="panel-message clean-message"><Check size={18} /> Değişiklik yok. Çalışma ağacı temiz.</div>
+              <div className="panel-message clean-message"><Check size={18} /> {t("noChanges")}</div>
             ) : viewScope === "history" && selectedCommit && !selectedCommitFiles ? (
-              commitFilesError ? <div className="panel-message error-message"><AlertCircle size={18} /><span>{commitFilesError}</span></div> : <div className="panel-message"><LoaderCircle className="spin" size={17} /> Commit dosyaları okunuyor…</div>
+              commitFilesError ? <div className="panel-message error-message"><AlertCircle size={18} /><span>{displayMessage(commitFilesError)}</span></div> : <div className="panel-message"><LoaderCircle className="spin" size={17} /> {t("readingCommitFiles")}</div>
             ) : viewScope === "history" && selectedCommit && selectedCommitFiles?.length === 0 ? (
-              <div className="panel-message clean-message"><Check size={18} /> Bu commit'te dosya değişikliği yok.</div>
+              <div className="panel-message clean-message"><Check size={18} /> {t("noCommitChanges")}</div>
             ) : !activeFile && fileFilterActive && totalFiles > 0 ? (
-              <div className="panel-message muted-message"><Search size={18} /> Filtreye uyan dosya yok. Aramayı veya durum filtresini değiştirin.</div>
+              <div className="panel-message muted-message"><Search size={18} /> {t("changeFilterHint")}</div>
             ) : !activeFile && viewScope === "history" ? (
-              <div className="panel-message muted-message"><History size={18} /> Geçmişten bir commit seçin.</div>
-            ) : <DiffView result={diffResult} state={diffState} error={diffError}
+              <div className="panel-message muted-message"><History size={18} /> {t("selectHistoryCommit")}</div>
+            ) : <DiffView result={diffResult} state={diffState} error={diffError ? displayMessage(diffError) : null}
               targetKey={JSON.stringify([snapshot ? repositoryIdentity(snapshot.repoPath) : null, viewScope, viewScope === "history" ? selectedCommitOid : diffLayer, selectedPath])}
               partialSelection={partialPreview ? {
                 staged: partialPreview.staged,
@@ -1362,9 +1401,9 @@ function RepositoryApp() {
           </div>
 
           <div className="diff-footer">
-            <div><span className="diff-legend add-legend">+</span> Ekleme <span className="diff-legend remove-legend">−</span> Silme</div>
+            <div><span className="diff-legend add-legend">+</span> {t("additions")} <span className="diff-legend remove-legend">−</span> {t("deletions")}</div>
             {diffResult && !diffResult.binary && diffResult.text.trim() && (
-              <span className="diff-line-total">{diffLineCount} satır</span>
+              <span className="diff-line-total">{t("lineCount", { count: diffLineCount })}</span>
             )}
           </div>
         </section>
@@ -1375,15 +1414,15 @@ function RepositoryApp() {
           <span className={`status-dot ${snapshot ? "green" : loadState === "error" ? "red" : "idle"}`} />
           <strong>{snapshot?.repoName || "Enogram"}</strong>
           <span className="status-divider" />
-          <GitBranch size={13} /><span>{snapshot?.branch || "Dal bekleniyor"}</span>
+          <GitBranch size={13} /><span>{snapshot?.branch || t("waitingBranch")}</span>
           <span className="status-divider" />
-          <span className="status-detail">{snapshot ? `${unstagedCount} çalışma ağacı · ${stagedCount} dizin` : loadState === "loading" ? "Depo okunuyor…" : "Depo açık değil"}</span>
+          <span className="status-detail">{snapshot ? t("statusSummary", { working: unstagedCount, staged: stagedCount }) : loadState === "loading" ? t("readingRepository") : t("noRepository")}</span>
           {snapshot?.head && <span className="status-oid">HEAD {shortOid(snapshot.head)}</span>}
         </div>
         <div className="status-right">
-          {snapshot?.isUnborn && <span className="status-hint"><GitCommitHorizontal size={13} /> Bu dalda commit yok</span>}
-          {layoutSaved ? <span className="shortcut-hint">Ctrl+F dosya · Ctrl+Shift+F commit · Ctrl+R yenile</span>
-            : <span className="layout-save-warning" role="status" title="Düzen bu oturumda geçerli; ayarlar kaydedilemiyor.">Düzen kaydedilemedi; bu oturumda geçerli.</span>}
+          {snapshot?.isUnborn && <span className="status-hint"><GitCommitHorizontal size={13} /> {t("noBranchCommits")}</span>}
+          {layoutSaved ? <span className="shortcut-hint">{t("shortcuts")}</span>
+            : <span className="layout-save-warning" role="status" title={t("layoutSaveHelp")}>{t("layoutNotSaved")}</span>}
         </div>
       </footer>
     </div>
@@ -1405,6 +1444,7 @@ function FileRow({
   disabled: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useI18n(appMessages);
   const staged = scope === "working" && hasStatus(file.indexStatus);
   const changed = scope === "working" && hasStatus(file.worktreeStatus);
   const status = scope === "working" ? fileStatus(file, layer) : (file.indexStatus || file.worktreeStatus || "M").trim();
@@ -1416,8 +1456,8 @@ function FileRow({
           <span className={`change-glyph ${isAdded ? "added" : "modified"}`}>{isAdded ? "A" : status.slice(0, 1) || "M"}</span>
         ) : (
           <>
-            <span className={`layer-glyph staged-glyph ${staged ? "on" : "off"}`} title={`Dizin: ${staged ? file.indexStatus.trim() : "temiz"}`}>{staged ? file.indexStatus.trim().slice(0, 1) : "·"}</span>
-            <span className={`layer-glyph worktree-glyph ${changed ? "on" : "off"}`} title={`Çalışma ağacı: ${changed ? file.worktreeStatus.trim() : "temiz"}`}>{changed ? file.worktreeStatus.trim().slice(0, 1) : "·"}</span>
+            <span className={`layer-glyph staged-glyph ${staged ? "on" : "off"}`} title={t("indexStatus", { status: staged ? file.indexStatus.trim() : t("clean") })}>{staged ? file.indexStatus.trim().slice(0, 1) : "·"}</span>
+            <span className={`layer-glyph worktree-glyph ${changed ? "on" : "off"}`} title={t("workingStatus", { status: changed ? file.worktreeStatus.trim() : t("clean") })}>{changed ? file.worktreeStatus.trim().slice(0, 1) : "·"}</span>
           </>
         )}
       </span>
@@ -1428,7 +1468,7 @@ function FileRow({
       </span>
       <span className="file-row-path">{parentPath(file.path) || "./"}</span>
       {scope === "working" && selected && (
-        <span className="file-selected-layer" aria-label={layer === "index" ? "Dizin farkı" : "Çalışma ağacı farkı"}>
+        <span className="file-selected-layer" aria-label={layer === "index" ? t("indexDiff") : t("workingDiff")}>
           {layer === "index" ? "S" : "W"}
         </span>
       )}
@@ -1437,18 +1477,20 @@ function FileRow({
 }
 
 function InlineError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const { t } = useI18n(appMessages);
   return (
     <div className="inline-error">
       <AlertCircle size={15} />
       <span>{message}</span>
-      <button type="button" onClick={onRetry}>Yeniden dene</button>
+      <button type="button" onClick={onRetry}>{t("retry")}</button>
     </div>
   );
 }
 
 function LoadingRows() {
+  const { t } = useI18n(appMessages);
   return (
-    <div className="loading-rows" aria-label="Geçmiş yükleniyor">
+    <div className="loading-rows" aria-label={t("loadingHistory")}>
       {[0, 1, 2, 3, 4].map((row) => (
         <div className="loading-row" key={row}><span /><i /><i /></div>
       ))}

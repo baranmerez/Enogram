@@ -1,3 +1,17 @@
+.language-picker { position: relative; display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; min-height: 28px; padding: 0 4px 0 7px; border: 1px solid var(--control-border); border-radius: var(--button-radius); color: var(--muted); background: var(--control-bg); }
+.language-picker select { width: 75px; min-width: 0; height: 26px; border: 0; color: var(--text); background: var(--control-bg); font: inherit; font-size: 11px; cursor: pointer; }
+.language-picker.unsaved { border-color: var(--warning-border); color: var(--amber); }
+.language-save-warning { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.browser-required > .language-picker { position: absolute; top: 20px; right: 20px; }
+@media (max-width: 1200px) {
+  .topbar .language-picker { padding-left: 2px; }
+  .topbar .language-picker > svg { display: none; }
+}
+@media (forced-colors: active) {
+  .language-picker { border-color: ButtonText; }
+  .language-picker, .language-picker select { color: ButtonText; background: ButtonFace; }
+}
+
 .history-search-bar { gap: 5px; padding: 0 9px; }
 .history-search-bar > svg { flex: 0 0 auto; color: var(--muted); }
 .history-search-bar input, .file-search input {

@@ -14,6 +14,10 @@ import {
   type RepositoryActionFeedback,
 } from "./repositoryActionModel";
 import { repositoryIdentity } from "./repositoryIdentity";
+import type { Locale } from "./i18n.ts";
+import { controlsMessages } from "./locales/controls.ts";
+import { localizeBackendText } from "./localizeBackendText.ts";
+import { useI18n } from "./useI18n";
 import type { RemoteEntry, RepositorySnapshot } from "./types";
 
 interface RemoteManagerDialogProps {
@@ -37,12 +41,14 @@ function remoteDraftKey(remote: RemoteEntry | null): string {
 }
 
 function CurrentRemoteAddress({ address }: { address: string }) {
-  return <div className="remote-current-address"><span>Git'in kullandığı mevcut adres</span><code>{address}</code></div>;
+  const { t } = useI18n(controlsMessages);
+  return <div className="remote-current-address"><span>{t("currentGitAddress")}</span><code>{address}</code></div>;
 }
 
 export function RemoteManagerDialog({ open, dialogId, snapshot, canMutate, targetsLocked, refreshing, onExecute, onClose }: RemoteManagerDialogProps) {
+  const { locale, t } = useI18n(controlsMessages);
   const [state, setState] = useState<RemoteManagerState | null>(null);
-  const [feedback, setFeedback] = useState<Pick<RepositoryActionFeedback, "kind" | "message"> | null>(null);
+  const [feedback, setFeedback] = useState<(Pick<RepositoryActionFeedback, "kind" | "message" | "localizedMessage"> & { messageKey?: keyof typeof controlsMessages }) | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -66,15 +72,15 @@ export function RemoteManagerDialog({ open, dialogId, snapshot, canMutate, targe
     ? { ...draft, repoPath: snapshot.repoPath } : draft;
   const source = draft?.source ?? null;
   const busy = submitting || targetsLocked;
-  const blockedReason = source?.editBlockedReason ?? null;
-  const staleReason = targetDraft ? remoteConfigurationStaleReason(targetDraft, snapshot) : null;
+  const blockedReason = localizeBackendText(source?.editBlockedReason, locale);
+  const staleReason = targetDraft ? remoteConfigurationStaleReason(targetDraft, snapshot, locale) : null;
   const fieldDisabled = busy || !canMutate || Boolean(blockedReason);
-  const nameError = draft && !source && draft.name ? remoteConfigurationNameError(draft.name, snapshot?.remotes) : null;
+  const nameError = draft && !source && draft.name ? remoteConfigurationNameError(draft.name, snapshot?.remotes, locale) : null;
   const fetchHidden = source?.configuredFetchUrl === null;
   const pushHidden = Boolean(source?.hasExplicitPushUrl && source.configuredPushUrl === null);
-  const fetchError = draft && (draft.fetchUrl || (source && !fetchHidden)) ? remoteConfigurationUrlError(draft.fetchUrl) : null;
-  const pushError = draft?.separatePushUrl && (draft.pushUrl || (source?.hasExplicitPushUrl && !pushHidden)) ? remoteConfigurationUrlError(draft.pushUrl) : null;
-  const formError = draft ? remoteConfigurationDraftError(draft, snapshot?.remotes) : null;
+  const fetchError = draft && (draft.fetchUrl || (source && !fetchHidden)) ? remoteConfigurationUrlError(draft.fetchUrl, locale) : null;
+  const pushError = draft?.separatePushUrl && (draft.pushUrl || (source?.hasExplicitPushUrl && !pushHidden)) ? remoteConfigurationUrlError(draft.pushUrl, locale) : null;
+  const formError = draft ? remoteConfigurationDraftError(draft, snapshot?.remotes, locale) : null;
   const hasChanges = draft ? remoteConfigurationHasChanges(draft) : false;
 
   useEffect(() => {
@@ -145,9 +151,10 @@ export function RemoteManagerDialog({ open, dialogId, snapshot, canMutate, targe
   async function submitAction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!draft || !targetDraft || !state || !snapshot || !canMutate || busy || submittingRef.current) return;
-    const error = remoteConfigurationStaleReason(targetDraft, snapshot) ?? remoteConfigurationDraftError(draft, snapshot.remotes);
+    const validationMessage = (language: Locale) => remoteConfigurationStaleReason(targetDraft, snapshot, language) ?? remoteConfigurationDraftError(draft, snapshot.remotes, language);
+    const error = validationMessage(locale);
     if (error) {
-      setFeedback({ kind: "error", message: error });
+      setFeedback({ kind: "error", message: error, localizedMessage: { tr: validationMessage("tr") ?? error, en: validationMessage("en") ?? error } });
       return;
     }
     if (!remoteConfigurationHasChanges(draft)) return;
@@ -170,11 +177,11 @@ export function RemoteManagerDialog({ open, dialogId, snapshot, canMutate, targe
         });
         if (submittedGeneration === generation.current) closeDialog();
       } else if (submittedGeneration === generation.current) {
-        setFeedback(result ?? { kind: "error", message: "Depo durumu değişti. Taslağınız korundu; güncel ayarı yükleyip yeniden düzenleyin." });
+        setFeedback(result ?? { kind: "error", message: t("remoteSaveStateChanged"), messageKey: "remoteSaveStateChanged" });
       }
     } catch {
       if (submittedGeneration === generation.current) {
-        setFeedback({ kind: "error", message: "Uzak depo ayarı kaydedilemedi. Taslağınız korundu. Depo durumunu yenileyip tekrar kontrol edin." });
+        setFeedback({ kind: "error", message: t("remoteSaveFailed"), messageKey: "remoteSaveFailed" });
       }
     } finally {
       submittingRef.current = false;
@@ -199,17 +206,17 @@ export function RemoteManagerDialog({ open, dialogId, snapshot, canMutate, targe
         <header className="repository-dialog-header">
           <span className="repository-dialog-icon"><FolderGit2 size={21} aria-hidden="true" /></span>
           <div>
-            <p className="repository-dialog-eyebrow">{snapshot?.repoName ?? "ENOGRAM"} · BAĞLANTI AYARLARI</p>
-            <h2 id={headingId}>Uzak depolar</h2>
-            <p id={descriptionId}>Fetch ve Push adreslerini bu yerel depo için yönetin.</p>
+            <p className="repository-dialog-eyebrow">{snapshot?.repoName ?? "ENOGRAM"} · {t("connectionSettings")}</p>
+            <h2 id={headingId}>{t("remotes")}</h2>
+            <p id={descriptionId}>{t("remotesDescription")}</p>
           </div>
-          <button className="icon-button repository-dialog-close" type="button" onClick={closeDialog} aria-label="Uzak depolar penceresini kapat" title="Pencereyi kapat"><X size={17} /></button>
+          <button className="icon-button repository-dialog-close" type="button" onClick={closeDialog} aria-label={t("closeRemotesDialog")} title={t("closeDialog")}><X size={17} /></button>
         </header>
 
         <div className="remote-manager-layout">
-          <nav className="remote-manager-navigation" aria-label="Uzak depo seçimi">
-            <div className="remote-navigation-label"><span>TANIMLI DEPOLAR</span><span>{snapshot?.remotes.length ?? 0}</span></div>
-            <div className="remote-manager-list" role="group" aria-label="Tanımlı uzak depolar">
+          <nav className="remote-manager-navigation" aria-label={t("remoteSelection")}>
+            <div className="remote-navigation-label"><span>{t("configuredRemotesEyebrow")}</span><span>{snapshot?.remotes.length ?? 0}</span></div>
+            <div className="remote-manager-list" role="group" aria-label={t("configuredRemotes")}>
               {snapshot?.remotes.map((remote) => (
                 <button
                   key={remote.name}
@@ -221,69 +228,69 @@ export function RemoteManagerDialog({ open, dialogId, snapshot, canMutate, targe
                   title={remote.name}
                 >
                   <FolderGit2 size={16} aria-hidden="true" />
-                  <span><strong>{remote.name}</strong><small>{remote.editBlockedReason ? "Yalnızca görüntüleme" : remote.hasExplicitPushUrl ? "Ayrı Push adresi" : "Fetch ve Push"}</small></span>
+                  <span><strong>{remote.name}</strong><small>{remote.editBlockedReason ? t("remoteReadOnly") : remote.hasExplicitPushUrl ? t("remoteSeparatePush") : t("remoteFetchAndPush")}</small></span>
                   {remote.editBlockedReason ? <LockKeyhole size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
                 </button>
               ))}
-              {!snapshot?.remotes.length && <div className="remote-list-empty"><Link2 size={21} aria-hidden="true" /><span>Henüz uzak depo yok.</span><small>İlk bağlantınızı ekleyin.</small></div>}
+              {!snapshot?.remotes.length && <div className="remote-list-empty"><Link2 size={21} aria-hidden="true" /><span>{t("remoteListEmpty")}</span><small>{t("addFirstConnection")}</small></div>}
             </div>
-            <button className={`remote-manager-add ${state?.selectedKey === "add" ? "selected" : ""}`} type="button" aria-pressed={state?.selectedKey === "add"} disabled={busy} onClick={() => selectDraft(null)}><Plus size={15} aria-hidden="true" /><span>Yeni uzak depo</span></button>
-            <p className="remote-navigation-note">Bağlantılar bu deponun Git ayarlarında saklanır.</p>
+            <button className={`remote-manager-add ${state?.selectedKey === "add" ? "selected" : ""}`} type="button" aria-pressed={state?.selectedKey === "add"} disabled={busy} onClick={() => selectDraft(null)}><Plus size={15} aria-hidden="true" /><span>{t("newRemote")}</span></button>
+            <p className="remote-navigation-note">{t("remoteStorageNote")}</p>
           </nav>
 
           <div className="repository-dialog-main remote-manager-editor">
             {draft && (
               <section className="repository-fields" aria-labelledby={editorHeadingId}>
                 <div className="remote-editor-heading">
-                  <div><p>{source ? "BAĞLANTIYI DÜZENLE" : "YENİ BAĞLANTI"}</p><h3 ref={editorHeadingRef} tabIndex={-1} id={editorHeadingId}>{source ? source.name : "Uzak depo ekle"}</h3></div>
-                  <span><span className="remote-local-dot" />Yerel ayar</span>
+                  <div><p>{source ? t("editConnection") : t("newConnection")}</p><h3 ref={editorHeadingRef} tabIndex={-1} id={editorHeadingId}>{source ? source.name : t("addRemote")}</h3></div>
+                  <span><span className="remote-local-dot" />{t("localSetting")}</span>
                 </div>
 
                 {blockedReason && <div className="repository-form-message warning" role="status"><LockKeyhole size={15} aria-hidden="true" /><span>{blockedReason}</span></div>}
 
-                {staleReason && !submitting && <div className="repository-form-message warning remote-stale-message" role="status"><AlertCircle size={15} aria-hidden="true" /><span>{staleReason}<button className="change-action" type="button" disabled={busy} onClick={reloadDraft}><RefreshCw size={13} aria-hidden="true" />Güncel ayarı yükle</button><small>Bu formdaki değişikliklerin yerine güncel değerler yüklenir.</small></span></div>}
+                {staleReason && !submitting && <div className="repository-form-message warning remote-stale-message" role="status"><AlertCircle size={15} aria-hidden="true" /><span>{staleReason}<button className="change-action" type="button" disabled={busy} onClick={reloadDraft}><RefreshCw size={13} aria-hidden="true" />{t("reloadRemoteSettings")}</button><small>{t("reloadRemoteSettingsHint")}</small></span></div>}
 
                 <div className="repository-field">
-                  <label htmlFor={nameId}>Uzak depo adı{source && <LockKeyhole size={11} aria-hidden="true" />}</label>
+                  <label htmlFor={nameId}>{t("remoteName")}{source && <LockKeyhole size={11} aria-hidden="true" />}</label>
                   <input ref={nameRef} id={nameId} value={source?.name ?? draft.name} onChange={(event) => updateDraft({ name: event.target.value })} readOnly={Boolean(source)} disabled={fieldDisabled} placeholder="origin" autoComplete="off" autoCapitalize="none" spellCheck={false} aria-invalid={Boolean(nameError)} aria-describedby={nameHintId} />
-                  <p id={nameHintId} className={`repository-field-hint ${nameError ? "error" : ""}`}>{nameError ?? (source ? "Uzak depo adı düzenleme sırasında korunur." : "Bu bağlantı için kısa bir ad; örneğin origin veya upstream.")}</p>
+                  <p id={nameHintId} className={`repository-field-hint ${nameError ? "error" : ""}`}>{nameError ?? (source ? t("remoteNamePreserved") : t("remoteNameHint"))}</p>
                 </div>
 
                 <div className="repository-field">
-                  <label htmlFor={fetchId}>Fetch adresi{fetchHidden && !draft.fetchUrl && <span className="remote-field-badge"><LockKeyhole size={10} aria-hidden="true" />Mevcut adres korunuyor</span>}</label>
-                  <input ref={fetchRef} id={fetchId} value={draft.fetchUrl} onChange={(event) => updateDraft({ fetchUrl: event.target.value })} disabled={fieldDisabled} placeholder={fetchHidden ? "Değiştirmek için yeni adres girin" : "https://sunucu/ekip/depo.git"} autoComplete="off" autoCapitalize="none" spellCheck={false} aria-invalid={Boolean(fetchError)} aria-describedby={fetchHintId} />
-                  <p id={fetchHintId} className={`repository-field-hint ${fetchError ? "error" : ""}`}>{fetchError ?? (fetchHidden ? "Kayıtlı adres bu alana aktarılmadı. Boş bırakırsanız mevcut adres korunur." : "HTTPS, SSH, SCP adresi veya yerel bir depo yolu kullanabilirsiniz.")}</p>
+                  <label htmlFor={fetchId}>{t("fetchAddress")}{fetchHidden && !draft.fetchUrl && <span className="remote-field-badge"><LockKeyhole size={10} aria-hidden="true" />{t("addressPreserved")}</span>}</label>
+                  <input ref={fetchRef} id={fetchId} value={draft.fetchUrl} onChange={(event) => updateDraft({ fetchUrl: event.target.value })} disabled={fieldDisabled} placeholder={fetchHidden ? t("replaceAddressPlaceholder") : t("fetchAddressPlaceholder")} autoComplete="off" autoCapitalize="none" spellCheck={false} aria-invalid={Boolean(fetchError)} aria-describedby={fetchHintId} />
+                  <p id={fetchHintId} className={`repository-field-hint ${fetchError ? "error" : ""}`}>{fetchError ?? (fetchHidden ? t("hiddenFetchHint") : t("fetchAddressHint"))}</p>
                   {source && (fetchHidden || source.configuredFetchUrl !== source.fetchUrl) && <CurrentRemoteAddress address={source.fetchUrl} />}
                 </div>
 
                 <label className="repository-checkbox remote-push-option">
                   <input type="checkbox" checked={draft.separatePushUrl} onChange={(event) => updateDraft({ separatePushUrl: event.target.checked })} disabled={fieldDisabled} />
-                  <span><strong>Push için ayrı adres kullan</strong><small>{draft.separatePushUrl ? "Commit'ler ayrı bir adrese gönderilir." : "Push, Fetch adresini kullanır. Git'in adres yönlendirmeleri korunur."}</small></span>
+                  <span><strong>{t("separatePushOption")}</strong><small>{draft.separatePushUrl ? t("separatePushHint") : t("inheritedPushHint")}</small></span>
                 </label>
 
                 {draft.separatePushUrl && <div className="repository-field remote-push-field">
-                  <label htmlFor={pushId}>Push adresi{pushHidden && !draft.pushUrl && <span className="remote-field-badge"><LockKeyhole size={10} aria-hidden="true" />Mevcut adres korunuyor</span>}</label>
-                  <input id={pushId} value={draft.pushUrl} onChange={(event) => updateDraft({ pushUrl: event.target.value })} disabled={fieldDisabled} placeholder={pushHidden ? "Değiştirmek için yeni adres girin" : "git@sunucu:ekip/depo.git"} autoComplete="off" autoCapitalize="none" spellCheck={false} aria-invalid={Boolean(pushError)} aria-describedby={pushHintId} />
-                  <p id={pushHintId} className={`repository-field-hint ${pushError ? "error" : ""}`}>{pushError ?? (pushHidden ? "Boş bırakırsanız mevcut ayrı Push adresi korunur. Yukarıdaki seçimi kaldırırsanız Push, Fetch adresini kullanır." : "Yalnızca Push işlemlerinde kullanılacak adres.")}</p>
+                  <label htmlFor={pushId}>{t("pushAddress")}{pushHidden && !draft.pushUrl && <span className="remote-field-badge"><LockKeyhole size={10} aria-hidden="true" />{t("addressPreserved")}</span>}</label>
+                  <input id={pushId} value={draft.pushUrl} onChange={(event) => updateDraft({ pushUrl: event.target.value })} disabled={fieldDisabled} placeholder={pushHidden ? t("replaceAddressPlaceholder") : t("pushAddressPlaceholder")} autoComplete="off" autoCapitalize="none" spellCheck={false} aria-invalid={Boolean(pushError)} aria-describedby={pushHintId} />
+                  <p id={pushHintId} className={`repository-field-hint ${pushError ? "error" : ""}`}>{pushError ?? (pushHidden ? t("hiddenPushHint") : t("pushAddressHint"))}</p>
                   {source?.hasExplicitPushUrl && (pushHidden || source.configuredPushUrl !== source.pushUrl) && <CurrentRemoteAddress address={source.pushUrl} />}
                 </div>}
 
-                {source && !draft.separatePushUrl && !source.hasExplicitPushUrl && source.pushUrl !== source.fetchUrl && <div className="remote-inherited-address"><span>Git yönlendirmesiyle kullanılan Push adresi</span><code>{source.pushUrl}</code></div>}
+                {source && !draft.separatePushUrl && !source.hasExplicitPushUrl && source.pushUrl !== source.fetchUrl && <div className="remote-inherited-address"><span>{t("rewrittenPushAddress")}</span><code>{source.pushUrl}</code></div>}
 
-                {!hasChanges && source && !blockedReason && !staleReason && <p className="remote-unchanged-hint"><Check size={12} aria-hidden="true" />Kayıtlı ayarlar gösteriliyor.</p>}
-                {feedback && <div className={`repository-form-message ${feedback.kind}`} role={feedback.kind === "error" ? "alert" : "status"}><AlertCircle size={15} aria-hidden="true" /><span>{feedback.message}</span></div>}
-                {submitting && <div className="repository-form-message progress" role="status"><LoaderCircle className="spin" size={15} aria-hidden="true" /><span>{refreshing ? "Depo durumu yeniden okunuyor…" : "Uzak depo ayarı kaydediliyor…"}<small>Pencereyi kapatmak işlemi durdurmaz.</small></span></div>}
+                {!hasChanges && source && !blockedReason && !staleReason && <p className="remote-unchanged-hint"><Check size={12} aria-hidden="true" />{t("savedRemoteSettings")}</p>}
+                {feedback && <div className={`repository-form-message ${feedback.kind}`} role={feedback.kind === "error" ? "alert" : "status"}><AlertCircle size={15} aria-hidden="true" /><span>{feedback.messageKey ? t(feedback.messageKey) : feedback.localizedMessage?.[locale] ?? feedback.message}</span></div>}
+                {submitting && <div className="repository-form-message progress" role="status"><LoaderCircle className="spin" size={15} aria-hidden="true" /><span>{refreshing ? t("refreshingRepository") : t("savingRemoteSettings")}<small>{t("closingDoesNotCancel")}</small></span></div>}
               </section>
             )}
           </div>
         </div>
 
         <footer className="repository-dialog-footer remote-manager-footer">
-          <span><Link2 size={13} aria-hidden="true" />Kaydetmek ağ bağlantısı kurmaz.</span>
-          <button type="button" className="change-action" onClick={closeDialog}>{submitting ? "Pencereyi kapat" : "Kapat"}</button>
+          <span><Link2 size={13} aria-hidden="true" />{t("saveIsLocal")}</span>
+          <button type="button" className="change-action" onClick={closeDialog}>{submitting ? t("closeDialog") : t("close")}</button>
           <button type="submit" className="commit-button repository-execute" disabled={!draft || !canMutate || busy || Boolean(formError) || Boolean(staleReason) || !hasChanges}>
             {submitting ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : source ? <Save size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
-            {submitting ? "Kaydediliyor…" : source ? "Değişiklikleri kaydet" : "Uzak depo ekle"}
+            {submitting ? t("saving") : source ? t("saveChanges") : t("addRemote")}
           </button>
         </footer>
       </form>

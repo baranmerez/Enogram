@@ -2,6 +2,87 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { repositoryAppHarness, textContent } from "../scripts/repositoryAppHarness.mjs";
 import { workspacePreferencesKey } from "./workspacePreferences.ts";
+import { localeStorageKey } from "./i18n.ts";
+
+test("language switching preserves the loaded repository, draft, filters and partial diff without Git requests", async (t) => {
+  const app = await mount(t);
+  await resolvePartialDiff(app);
+  await editDraft(app, "feat: keep my draft — değişiklik");
+  app.find((node) => node.props["aria-label"] === "Dosya ara").props.onChange({ target: { value: "working" } });
+  await app.flush();
+  const before = diffView(app).props;
+  const count = app.requests.length;
+  app.setLocale("en");
+  await app.flush();
+  assert.equal(app.find((node) => node.props["aria-label"] === "Repository path").props.value, String.raw`C:\work\repo-a`);
+  assert.equal(app.find((node) => node.props["aria-label"] === "Search files").props.value, "working");
+  assert.equal(composer(app).props.value, "feat: keep my draft — değişiklik");
+  assert.equal(diffView(app).props.result, before.result);
+  assert.equal(diffView(app).props.targetKey, before.targetKey);
+  assert.equal(diffView(app).props.partialSelection.selectionToken, before.partialSelection.selectionToken);
+  assert.match(textContent(app.find(byClass("diff-source"))), /WORKING TREE/);
+  assert.equal(app.requests.length, count);
+  app.setLocale("tr");
+  await app.flush();
+  assert.equal(composer(app).props.value, "feat: keep my draft — değişiklik");
+  assert.equal(app.requests.length, count);
+});
+
+test("stored English preference initializes the workspace without reopening it when language changes", async (t) => {
+  const localStorage = memoryStorage(repoA);
+  localStorage.setItem(localeStorageKey, "en");
+  const app = repositoryAppHarness({ localStorage });
+  t.after(() => app.unmount());
+  await app.flush();
+  assert.ok(app.find((node) => node.props["aria-label"] === "Repository path"));
+  app.take("inspect_repository").resolve(snapshot());
+  await app.flush();
+  const count = app.requests.length;
+  app.setLocale("tr");
+  await app.flush();
+  assert.equal(localStorage.getItem(localeStorageKey), "tr");
+  assert.equal(localStorage.getItem(lastRepositoryStorageKey), repoA);
+  assert.equal(app.requests.length, count);
+});
+
+test("pending writes and persisted success messages follow the selected language without repeating a write", async (t) => {
+  const app = await mount(t);
+  const controls = await resolvePartialDiff(app);
+  await editDraft(app, "feat: preserve example draft");
+  const completion = controls.onApply({ selectionToken: "selection-v1", lineIds: [4, 5] });
+  await app.flush();
+  app.setLocale("en");
+  await app.flush();
+  app.take("apply_partial_selection").resolve({ snapshot: snapshot(), commitOid: null, commitTreeChanged: false });
+  await completion;
+  await app.flush();
+  assert.match(textContent(app.find(byClass("mutation-feedback"))), /Changed lines staged: 2/);
+  app.setLocale("tr");
+  await app.flush();
+  assert.match(textContent(app.find(byClass("mutation-feedback"))), /2 değişiklik satırı stage edildi/);
+  assert.equal(composer(app).props.value, "feat: preserve example draft");
+  assert.equal(app.requests.filter((request) => request.command === "apply_partial_selection").length, 1);
+});
+
+test("failure wrappers relocalize while raw Git diagnostics remain intact", async (t) => {
+  const app = await mount(t);
+  const controls = await resolvePartialDiff(app);
+  const completion = controls.onApply({ selectionToken: "selection-v1", lineIds: [4] });
+  await app.flush();
+  app.take("apply_partial_selection").reject("fatal: example — değişiklik");
+  await app.flush();
+  app.take("inspect_repository").reject({});
+  await completion;
+  await app.flush();
+  assert.match(textContent(app.find(byClass("mutation-feedback"))), /Depo durumu yenilenemedi/);
+  const count = app.requests.length;
+  app.setLocale("en");
+  await app.flush();
+  const text = textContent(app.find(byClass("mutation-feedback")));
+  assert.match(text, /fatal: example — değişiklik/);
+  assert.match(text, /Could not refresh repository status: An unexpected error occurred/);
+  assert.equal(app.requests.length, count);
+});
 
 const repoA = String.raw`\\?\C:\work\repo-a`;
 const repoB = String.raw`\\?\C:\work\repo-b`;

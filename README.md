@@ -29,7 +29,7 @@ Your repository, commit history, working changes, and diff stay in one adjustabl
   <img src="docs/media/workspace-dark.png" alt="Enogram running against the example repository, with a real branch graph, separate staged and working changes, and selected lines in the diff." width="1560" />
 </picture>
 
-<sub>Actual desktop screenshots using the disposable <code>example</code> repository and the <code>Example</code> author. The current application interface is Turkish; this documentation is English.</sub>
+<sub>Actual desktop screenshots in English, using the disposable <code>example</code> repository and the <code>Example</code> author.</sub>
 
 ## Built for deliberate commits
 
@@ -40,12 +40,13 @@ Your repository, commit history, working changes, and diff stay in one adjustabl
 | **Find the change** | Search all locally reachable history by message, author/email, SHA, or ref. Search within a diff and jump between matches or hunks. |
 | **Branch and sync** | Create/switch local branches, add/edit remotes, Fetch, fast-forward-only Pull, and Push an explicit branch. |
 | **Make it yours** | Four palettes, light/dark glass surfaces, a color generator, four button styles, adjustable panels, and compact/comfortable density. |
+| **Two interface languages** | Switch between English and Türkçe in the top bar. Your preference is saved, and open repositories, drafts, searches, and selections stay in place. |
 | **Local MCP** | Let Codex, Claude Code, or Claude Desktop read allowed repositories and stage, unstage, or commit through the same Rust core. |
 
 ### Select → stage → review → commit
 
 1. Open an existing checkout, for example `C:\example\repository`.
-2. In **W**, select changed lines or use **Stage bölüm** to stage a complete hunk.
+2. In **W**, select changed lines or use **Stage hunk** to stage a complete hunk.
 3. In **S**, review the prepared changes. Use **Unstage** to take selected changes back out of the index.
 4. Write a message and press **Commit**. Only the prepared index is committed.
 
@@ -65,6 +66,8 @@ Choose a seed color to generate a readable light or dark palette. Tune opacity, 
 ![The example repository in the Glacier light theme](docs/media/workspace-light.png)
 
 Preferences are stored on your device. Panel widths, sidebar state, and density persist independently of the selected palette.
+
+The language selector is always available in the top bar. Turkish is the default; choose **English** to use the interface shown above. Repository content and original Git diagnostics are displayed as written.
 
 </details>
 

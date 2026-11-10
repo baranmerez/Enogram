@@ -4,10 +4,16 @@ import vm from "node:vm";
 import ts from "typescript";
 import * as diffLines from "../src/diffLines.ts";
 import * as diffSearch from "../src/diffSearch.ts";
+import * as historyGraph from "../src/historyGraph.ts";
+import * as i18n from "../src/i18n.ts";
+import * as localizeBackendText from "../src/localizeBackendText.ts";
+import * as diffHistory from "../src/locales/diffHistory.ts";
 
-const compiled = ts.transpileModule(await readFile(new URL("../src/DiffView.tsx", import.meta.url), "utf8"), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
-}).outputText;
+const compiledViews = Object.fromEntries(await Promise.all(["DiffView", "HistoryList"].map(async (name) => [name,
+  ts.transpileModule(await readFile(new URL(`../src/${name}.tsx`, import.meta.url), "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 },
+  }).outputText,
+])));
 const sameDependencies = (previous, next) => previous && next && previous.length === next.length
   && previous.every((value, index) => Object.is(value, next[index]));
 
@@ -28,7 +34,15 @@ export function textContent(value) {
 
 // Exercise the real view's handlers, keyed lifecycle, refs and scroll requests.
 // DOM surfaces are deterministic doubles; this does not prove native layout.
-export function diffViewHarness(initialProps) {
+export function diffViewHarness(initialProps, options) {
+  return viewHarness("DiffView", initialProps, options);
+}
+
+export function historyListHarness(initialProps, options) {
+  return viewHarness("HistoryList", initialProps, options);
+}
+
+function viewHarness(viewName, initialProps, { locale: initialLocale = "tr" } = {}) {
   const instances = new Map();
   const surfaces = new Map();
   const scrolls = [];
@@ -41,6 +55,11 @@ export function diffViewHarness(initialProps) {
   let effects = [];
   let tree;
   let activeElement = null;
+  let locale = initialLocale;
+  const translators = new Map();
+  const setLocale = (nextLocale) => {
+    if (nextLocale !== locale) { locale = nextLocale; dirty = true; }
+  };
 
   const react = {
     useState(initial) {
@@ -86,16 +105,27 @@ export function diffViewHarness(initialProps) {
     "lucide-react": new Proxy({}, { get: (_target, name) => `icon:${String(name)}` }),
     "./diffLines": diffLines,
     "./diffSearch": diffSearch,
+    "./historyGraph": historyGraph,
+    "./i18n.ts": i18n,
+    "./localizeBackendText.ts": localizeBackendText,
+    "./locales/diffHistory.ts": diffHistory,
+    "./useI18n": {
+      useI18n(catalog) {
+        if (!translators.has(catalog)) translators.set(catalog, (key, params) => i18n.translate(catalog, locale, key, params));
+        return { locale, t: translators.get(catalog), setLocale, localeSaved: true };
+      },
+    },
     "./diffView.css": {},
+    "./historyGraph.css": {},
   };
   const exports = {};
-  vm.runInNewContext(compiled, {
+  vm.runInNewContext(compiledViews[viewName], {
     exports,
     require(name) {
-      assert.ok(Object.hasOwn(modules, name), `Unmapped DiffView import: ${name}`);
+      assert.ok(Object.hasOwn(modules, name), `Unmapped ${viewName} import: ${name}`);
       return modules[name];
     },
-  }, { filename: "DiffView.tsx" });
+  }, { filename: `${viewName}.tsx` });
 
   function detach(instance) {
     instance.mounted = false;
@@ -161,11 +191,11 @@ export function diffViewHarness(initialProps) {
   function render() {
     let renders = 0;
     while (dirty) {
-      assert.ok(++renders <= 30, "DiffView did not settle after effects");
+      assert.ok(++renders <= 30, `${viewName} did not settle after effects`);
       dirty = false;
       effects = [];
       for (const instance of instances.values()) instance.seen = false;
-      tree = renderElement(jsx(exports.DiffView, props), "root", null);
+      tree = renderElement(jsx(exports[viewName], props), "root", null);
       for (const [id, instance] of instances) {
         if (!instance.seen) { detach(instance); instances.delete(id); }
       }
@@ -177,6 +207,7 @@ export function diffViewHarness(initialProps) {
     scrolls,
     outerScroll,
     get activeElement() { return activeElement; },
+    setLocale,
     setProps(change) { props = { ...props, ...change }; dirty = true; },
     flush() { render(); },
     all(predicate, within = tree) { return [...elements(within)].filter(predicate); },

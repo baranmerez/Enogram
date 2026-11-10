@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { repositoryActionsHarness, textContent } from "../scripts/repositoryActionsHarness.mjs";
 import {
   applyTheme,
   contrastRatio,
@@ -167,4 +168,59 @@ test("root application emits only validated colors and attributes and is safe wi
   assert.ok([...target.properties.values()].every((value) => !value.includes("url(")));
   assert.doesNotThrow(() => applyTheme(defaultThemeSettings));
   assert.doesNotThrow(() => initializeTheme(undefined, null));
+});
+
+async function appearanceHarness(t) {
+  const app = repositoryActionsHarness({
+    snapshot: null, targetsLocked: false, canMutate: false, refreshing: false, activeAction: null, feedback: null,
+    onExecute() { assert.fail("Appearance must not execute Git actions"); }, onDismissFeedback() {}, onRefresh() {},
+  });
+  t.after(() => app.unmount());
+  await app.flush();
+  app.find((node) => node.props.className === "theme-trigger").props.onClick();
+  await app.flush();
+  return app;
+}
+
+test("appearance validation and input drafts relocalize without reopening the dialog", async (t) => {
+  const app = await appearanceHarness(t);
+  const dialog = () => app.find((node) => node.props.className === "theme-dialog");
+  const surface = dialog().props.ref.current;
+  const seed = () => app.find((node) => node.type === "input" && node.props.maxLength === 7, dialog());
+  seed().props.onChange({ target: { value: "invalid" } });
+  await app.flush();
+  app.find((node) => node.type === "form", dialog()).props.onSubmit({ preventDefault() {} });
+  await app.flush();
+  assert.match(textContent(app.find((node) => node.props.role === "alert", dialog())), /3 veya 6 haneli/);
+  app.setLocale("en");
+  await app.flush();
+  assert.equal(dialog().props.ref.current, surface);
+  assert.equal(surface.open, true);
+  assert.equal(surface.showCount, 1);
+  assert.equal(seed().props.value, "invalid");
+  assert.match(textContent(app.find((node) => node.props.role === "alert", dialog())), /3- or 6-digit color/);
+  assert.ok(textContent(dialog()).includes("Calm, crisp, dark"));
+  assert.doesNotMatch(textContent(dialog()), /Sakin, keskin, koyu/);
+});
+
+test("appearance success messages relocalize while the generated palette remains selected", async (t) => {
+  const app = await appearanceHarness(t);
+  const dialog = () => app.find((node) => node.props.className === "theme-dialog");
+  const seed = () => app.find((node) => node.type === "input" && node.props.maxLength === 7, dialog());
+  seed().props.onChange({ target: { value: "#123456" } });
+  await app.flush();
+  app.find((node) => node.type === "form", dialog()).props.onSubmit({ preventDefault() {} });
+  await app.flush();
+  assert.match(textContent(dialog()), /Yeni renk paleti uygulandı/);
+  app.setLocale("en");
+  await app.flush();
+  assert.equal(seed().props.value, "#123456");
+  assert.match(textContent(dialog()), /New color palette applied/);
+  assert.match(textContent(dialog()), /Custom palette/);
+  app.find((node) => node.props.className === "theme-preview-button", dialog()).props.onClick();
+  await app.flush();
+  app.setLocale("tr");
+  await app.flush();
+  assert.match(textContent(dialog()), /Düğme biçimi çalışma alanına uygulandı/);
+  assert.equal(seed().props.value, "#123456");
 });

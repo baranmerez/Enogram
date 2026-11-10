@@ -250,3 +250,50 @@ test("configuration action feedback names the remote without including submitted
     assert.match(repositoryActionDeadline(action.kind), /Yerel komut/);
   }
 });
+
+test("explicit English locale reaches nested validators without changing Git commands", () => {
+  assert.equal(branchNameError("", [], "en"), "Enter a branch name.");
+  assert.match(networkActionBlockReason("pull", snapshot({ changes: [{ path: "changed.txt" }] }), "en"), /clean working tree and index/);
+  assert.match(networkActionBlockReason("fetch", snapshot({ remotes: [] }), "en"), /Remotes dialog/);
+  const draft = createRemoteConfigurationDraft(snapshot({ remotes: [] }));
+  draft.name = "";
+  assert.equal(remoteConfigurationDraftError(draft, [], "en"), "Enter a remote name.");
+  draft.name = "origin";
+  assert.equal(remoteConfigurationDraftError(draft, [], "en"), "Enter a repository address.");
+  draft.fetchUrl = "C:\\depolar\\çalışma.git";
+  draft.separatePushUrl = true;
+  assert.equal(remoteConfigurationDraftError(draft, [], "en"), "Enter a repository address.");
+  draft.pushUrl = "git@host:ekip/çalışma.git";
+  assert.equal(remoteConfigurationDraftError(draft, [], "en"), null);
+  assert.match(remoteConfigurationStaleReason(draft, snapshot({ mutationToken: "later" }), "en"), /repository state changed/);
+  const action = remoteConfigurationAction(draft);
+  const command = repositoryActionCommand(action);
+  assert.match(repositoryActionSuccess(action, "en"), /Added remote “origin”/);
+  assert.match(repositoryActionContext(action, "en"), /Add remote/);
+  assert.match(repositoryActionProgress(action, "en"), /Adding remote/);
+  assert.match(repositoryActionDeadline(action.kind, "en"), /Local command limit/);
+  assert.deepEqual(repositoryActionCommand(action), command);
+  assert.equal(command.args.fetchUrl, draft.fetchUrl);
+  assert.equal(command.args.pushUrl, draft.pushUrl);
+});
+
+test("operation feedback localizes every action while preserving target names", () => {
+  const target = { repoPath: "C:\\repo", expectedToken: "token" };
+  const remoteTarget = { ...target, remoteName: "ekip", expectedRemoteToken: "remote-token" };
+  const actions = [
+    { ...target, kind: "createBranch", name: "özellik", checkout: false },
+    { ...target, kind: "createBranch", name: "özellik", checkout: true },
+    { ...target, kind: "switchBranch", name: "özellik", expectedHead: "a".repeat(40) },
+    { ...remoteTarget, kind: "updateRemote", fetchUrl: null, pushUrl: null, updatePushUrl: false },
+    { ...remoteTarget, kind: "fetch" },
+    { ...remoteTarget, kind: "pull", branchName: "özellik", localBranch: "çalışma" },
+    { ...remoteTarget, kind: "push", branchName: "özellik", localBranch: "çalışma" },
+  ];
+  for (const action of actions) {
+    assert.ok(repositoryActionContext(action, "en"));
+    assert.notEqual(repositoryActionProgress(action, "en"), repositoryActionProgress(action, "tr"));
+    assert.notEqual(repositoryActionSuccess(action, "en"), repositoryActionSuccess(action, "tr"));
+    assert.notEqual(repositoryActionDeadline(action.kind, "en"), repositoryActionDeadline(action.kind, "tr"));
+  }
+  assert.match(repositoryActionSuccess(actions.at(-1), "en"), /çalışma → ekip\/özellik/);
+});

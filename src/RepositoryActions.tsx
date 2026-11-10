@@ -27,16 +27,20 @@ import {
   repositoryActionContext,
   repositoryActionDeadline,
   repositoryActionProgress,
+  repositoryActionSuccess,
   type NetworkActionKind,
   type RepositoryAction,
   type RepositoryActionFeedback,
 } from "./repositoryActionModel";
+import { translate, type Locale } from "./i18n.ts";
+import { controlsMessages } from "./locales/controls.ts";
+import { useI18n } from "./useI18n";
 import { repositoryIdentity } from "./repositoryIdentity";
 import type { BranchEntry, RepositorySnapshot } from "./types";
 import "./repositoryActions.css";
 
 type DialogMode = "branches" | "createBranch" | NetworkActionKind;
-type DialogFeedback = Pick<RepositoryActionFeedback, "kind" | "message">;
+type DialogFeedback = Pick<RepositoryActionFeedback, "kind" | "message" | "localizedMessage"> & { messageKey?: keyof typeof controlsMessages };
 
 interface RepositoryActionsProps {
   snapshot: RepositorySnapshot | null;
@@ -65,9 +69,10 @@ function NetworkIcon({ kind, size = 15 }: { kind: NetworkActionKind; size?: numb
 }
 
 function TrackingCounts({ branch }: { branch: BranchEntry }) {
+  const { t } = useI18n(controlsMessages);
   if (branch.ahead === null || branch.behind === null) return null;
   return (
-    <span className="branch-tracking-counts" title="Yerel izleme bilgisine göre; Fetch ile yenilenir." aria-label={`${branch.ahead} commit ileride, ${branch.behind} commit geride`}>
+    <span className="branch-tracking-counts" title={t("trackingHint")} aria-label={t("trackingCounts", { ahead: branch.ahead, behind: branch.behind })}>
       <span>↑ {branch.ahead}</span><span>↓ {branch.behind}</span>
     </span>
   );
@@ -92,6 +97,7 @@ export function RepositoryActions({
   onDismissFeedback,
   onRefresh,
 }: RepositoryActionsProps) {
+  const { locale, t } = useI18n(controlsMessages);
   const [dialogMode, setDialogMode] = useState<DialogMode | null>(null);
   const [remoteManagerOpen, setRemoteManagerOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -127,15 +133,15 @@ export function RepositoryActions({
   const isBranchDialog = dialogMode === "branches" || dialogMode === "createBranch";
   const busy = targetsLocked || submitting;
   const canCreate = Boolean(snapshot?.head) && !snapshot?.isUnborn;
-  const newNameError = newBranchName ? branchNameError(newBranchName, snapshot?.branches) : null;
-  const remoteNameError = remoteBranch ? branchNameError(remoteBranch) : null;
-  const networkBlock = networkMode ? networkActionBlockReason(networkMode, snapshot) : null;
+  const newNameError = newBranchName ? branchNameError(newBranchName, snapshot?.branches, locale) : null;
+  const remoteNameError = remoteBranch ? branchNameError(remoteBranch, [], locale) : null;
+  const networkBlock = networkMode ? networkActionBlockReason(networkMode, snapshot, locale) : null;
   const canSwitch = Boolean(selectedEntry && !selectedEntry.current && !selectedEntry.worktreePath);
   const sortedBranches = useMemo(() => [...(snapshot?.branches ?? [])]
     .sort((left, right) => Number(right.current) - Number(left.current) || left.name.localeCompare(right.name))
     .filter((entry) => entry.name.toLowerCase().includes(search.toLowerCase())), [snapshot?.branches, search]);
   const visibleNoticeAction = activeAction ?? feedback?.repositoryAction ?? null;
-  const displayedBranch = snapshot?.head && !snapshot.isUnborn && !branch ? "Ayrık HEAD" : snapshot?.branch;
+  const displayedBranch = snapshot?.head && !snapshot.isUnborn && !branch ? t("detachedHead") : snapshot?.branch;
   const pushSource = branch?.name ?? (snapshot?.head ? `HEAD · ${snapshot.head.slice(0, 8)}` : "HEAD");
   const defaultTarget = snapshot ? defaultRemoteTarget(snapshot) : null;
   const remoteRepositoryKey = snapshot ? repositoryIdentity(snapshot.repoPath) : null;
@@ -218,18 +224,20 @@ export function RepositoryActions({
       if (!selectedEntry || !canSwitch) return;
       action = { ...target, kind: "switchBranch", name: selectedEntry.name, expectedHead: selectedEntry.head };
     } else if (dialogMode === "createBranch") {
-      const error = branchNameError(newBranchName, snapshot.branches);
+      const validationMessage = (language: Locale) => branchNameError(newBranchName, snapshot.branches, language) ?? translate(controlsMessages, language, "branchFirstCommitRequired");
+      const error = branchNameError(newBranchName, snapshot.branches, locale);
       if (error || !canCreate) {
-        setDialogFeedback({ kind: "error", message: error ?? "Yeni dal için önce ilk commit'i oluşturun." });
+        setDialogFeedback({ kind: "error", message: validationMessage(locale), localizedMessage: { tr: validationMessage("tr"), en: validationMessage("en") } });
         return;
       }
       action = { ...target, kind: "createBranch", name: newBranchName, checkout: checkoutNewBranch };
     } else {
-      const error = networkActionBlockReason(dialogMode, snapshot)
-        ?? (!selectedRemote ? "Bir uzak depo seçin." : null)
-        ?? (dialogMode !== "fetch" ? branchNameError(remoteBranch) : null);
+      const validationMessage = (language: Locale) => networkActionBlockReason(dialogMode, snapshot, language)
+        ?? (!selectedRemote ? translate(controlsMessages, language, "remoteSelectionRequired") : null)
+        ?? (dialogMode !== "fetch" ? branchNameError(remoteBranch, [], language) : null);
+      const error = validationMessage(locale);
       if (error || !selectedRemote) {
-        setDialogFeedback({ kind: "error", message: error ?? "Uzak depo bulunamadı." });
+        setDialogFeedback({ kind: "error", message: error ?? t("remoteNotFound"), localizedMessage: { tr: validationMessage("tr") ?? translate(controlsMessages, "tr", "remoteNotFound"), en: validationMessage("en") ?? translate(controlsMessages, "en", "remoteNotFound") } });
         return;
       }
       const remote = { ...target, remoteName: selectedRemote.name, expectedRemoteToken: selectedRemote.configToken };
@@ -246,7 +254,7 @@ export function RepositoryActions({
       const result = await onExecute(action);
       if (generation !== dialogGeneration.current) return;
       if (result?.kind === "success") closeDialog();
-      else setDialogFeedback(result ?? { kind: "error", message: "Depo durumu değişti. Pencereyi yeniden açıp hedefi kontrol edin." });
+      else setDialogFeedback(result ?? { kind: "error", message: t("actionRepositoryChanged"), messageKey: "actionRepositoryChanged" });
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
@@ -256,14 +264,14 @@ export function RepositoryActions({
   const submitDisabled = !canMutate || busy || (dialogMode === "branches" ? !canSwitch
     : dialogMode === "createBranch" ? !canCreate || !newBranchName.trim() || Boolean(newNameError)
       : !selectedRemote || Boolean(networkBlock) || (networkMode !== "fetch" && (!remoteBranch.trim() || Boolean(remoteNameError))));
-  const submitLabel = dialogMode === "branches" ? "Bu dala geç"
-    : dialogMode === "createBranch" ? checkoutNewBranch ? "Oluştur ve geç" : "Dal oluştur"
-      : networkMode ? `${networkLabels[networkMode]} başlat` : "Başlat";
+  const submitLabel = dialogMode === "branches" ? t("switchToBranch")
+    : dialogMode === "createBranch" ? checkoutNewBranch ? t("createAndSwitch") : t("createBranch")
+      : networkMode ? t("startNetworkAction", { action: networkLabels[networkMode] }) : t("startAction");
   const description = isBranchDialog
-    ? "Yerel dalları inceleyin, dal değiştirin veya açık HEAD'den yeni bir dal oluşturun."
-    : networkMode === "fetch" ? "Uzak dalların yerel izleme bilgilerini güncelleyin."
-      : networkMode === "pull" ? "Seçili uzak dalı açık yerel dala yalnızca fast-forward ile uygulayın."
-        : "Açık HEAD'i seçili uzak dala normal push ile gönderin.";
+    ? t("branchesDescription")
+    : networkMode === "fetch" ? t("fetchDescription")
+      : networkMode === "pull" ? t("pullDescription")
+        : t("pushDescription");
 
   return (
     <>
@@ -272,14 +280,14 @@ export function RepositoryActions({
         className="branch-context repository-branch-trigger"
         onClick={() => openDialog("branches")}
         disabled={!canMutate || targetsLocked}
-        aria-label={`Dallar${displayedBranch ? ` · ${displayedBranch}` : ""}`}
+        aria-label={`${t("branches")}${displayedBranch ? ` · ${displayedBranch}` : ""}`}
         aria-haspopup="dialog"
         aria-controls={dialogId}
         aria-expanded={isBranchDialog}
-        title={snapshot ? `Yerel dallar · ${displayedBranch}` : "Önce bir yerel depo açın"}
+        title={snapshot ? t("localBranchesTitle", { branch: displayedBranch ?? "" }) : t("openRepositoryFirst")}
       >
         <GitBranch size={15} aria-hidden="true" />
-        <span className="branch-trigger-name">{displayedBranch || "Dal bekleniyor"}</span>
+        <span className="branch-trigger-name">{displayedBranch || t("branchPending")}</span>
         {snapshot?.head && <span className="head-short">{snapshot.head.slice(0, 8)}</span>}
         <ChevronDown className="branch-trigger-chevron" size={12} aria-hidden="true" />
       </button>
@@ -290,18 +298,18 @@ export function RepositoryActions({
           type="button"
           disabled={!snapshot || !canMutate || targetsLocked}
           onClick={openRemoteManager}
-          aria-label="Uzak depolar"
+          aria-label={t("remotes")}
           aria-haspopup="dialog"
           aria-controls={remoteManagerDialogId}
           aria-expanded={remoteManagerOpen}
-          title={snapshot ? "Uzak depolar · bağlantı ekle veya adresleri düzenle" : "Önce bir yerel depo açın"}
+          title={snapshot ? t("remotesTitle") : t("openRepositoryFirst")}
         >
           {activeAction?.kind === "addRemote" || activeAction?.kind === "updateRemote" ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <FolderGit2 size={15} aria-hidden="true" />}
-          <span>Uzak depolar</span>
+          <span>{t("remotes")}</span>
         </button>
-        <div className="network-action-group" role="group" aria-label="Uzak depo işlemleri">
+        <div className="network-action-group" role="group" aria-label={t("remoteActions")}>
           {networkActions.map((kind) => {
-            const blockReason = networkActionBlockReason(kind, snapshot);
+            const blockReason = networkActionBlockReason(kind, snapshot, locale);
             return (
               <button
                 className="toolbar-button network-action-button"
@@ -313,7 +321,7 @@ export function RepositoryActions({
                 aria-haspopup="dialog"
                 aria-controls={dialogId}
                 aria-expanded={dialogMode === kind}
-                title={blockReason ?? `${networkLabels[kind]} · ${defaultTarget?.remoteName}${kind !== "fetch" ? `/${defaultTarget?.branchName}` : ""} · hedefi seç`}
+                title={blockReason ?? t("networkTargetTitle", { action: networkLabels[kind], target: `${defaultTarget?.remoteName}${kind !== "fetch" ? `/${defaultTarget?.branchName}` : ""}` })}
               >
                 {activeAction?.kind === kind ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <NetworkIcon kind={kind} />}
                 <span>{networkLabels[kind]}</span>
@@ -321,7 +329,7 @@ export function RepositoryActions({
             );
           })}
         </div>
-        <button className="icon-button refresh-button" type="button" onClick={onRefresh} disabled={targetsLocked} aria-label="Depoyu yenile" title="Depoyu yenile (Ctrl+R)">
+        <button className="icon-button refresh-button" type="button" onClick={onRefresh} disabled={targetsLocked} aria-label={t("refreshRepository")} title={t("refreshRepositoryShortcut")}>
           {refreshing ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}
         </button>
       </div>
@@ -343,12 +351,12 @@ export function RepositoryActions({
           {activeAction ? <LoaderCircle className="spin" size={17} aria-hidden="true" />
             : feedback?.kind === "error" ? <AlertCircle size={17} aria-hidden="true" /> : <Check size={17} aria-hidden="true" />}
           <div className="repository-notice-copy">
-            <strong>{repositoryActionContext(visibleNoticeAction)}</strong>
-            {feedback && <p>{feedback.message}</p>}
-            {activeAction && <p>{refreshing ? "Depo durumu yeniden okunuyor…" : repositoryActionProgress(activeAction)}</p>}
-            {activeAction && <small>{repositoryActionDeadline(activeAction.kind)}</small>}
+            <strong>{repositoryActionContext(visibleNoticeAction, locale)}</strong>
+            {feedback && <p>{feedback.kind === "success" ? repositoryActionSuccess(feedback.repositoryAction, locale) : feedback.localizedMessage?.[locale] ?? feedback.message}</p>}
+            {activeAction && <p>{refreshing ? t("refreshingRepository") : repositoryActionProgress(activeAction, locale)}</p>}
+            {activeAction && <small>{repositoryActionDeadline(activeAction.kind, locale)}</small>}
           </div>
-          {!activeAction && <button className="subtle-icon-button" type="button" onClick={onDismissFeedback} aria-label="İşlem bildirimini kapat" title="Bildirimi kapat"><X size={14} /></button>}
+          {!activeAction && <button className="subtle-icon-button" type="button" onClick={onDismissFeedback} aria-label={t("dismissActionNotice")} title={t("dismissNotice")}><X size={14} /></button>}
         </div>,
         document.body,
       )}
@@ -370,82 +378,82 @@ export function RepositoryActions({
           <header className="repository-dialog-header">
             <span className="repository-dialog-icon">{isBranchDialog ? <GitBranch size={21} /> : networkMode && <NetworkIcon kind={networkMode} size={21} />}</span>
             <div>
-              <p className="repository-dialog-eyebrow">{snapshot?.repoName ?? "ENOGRAM"} · {isBranchDialog ? "YEREL DALLAR" : "UZAK DEPO"}</p>
-              <h2 id={headingId}>{isBranchDialog ? "Dal yönetimi" : networkMode ? networkLabels[networkMode] : "Depo işlemi"}</h2>
+              <p className="repository-dialog-eyebrow">{snapshot?.repoName ?? "ENOGRAM"} · {isBranchDialog ? t("localBranchesEyebrow") : t("remoteEyebrow")}</p>
+              <h2 id={headingId}>{isBranchDialog ? t("branchManagement") : networkMode ? networkLabels[networkMode] : t("repositoryAction")}</h2>
               <p id={descriptionId}>{description}</p>
             </div>
-            <button className="icon-button repository-dialog-close" type="button" onClick={closeDialog} aria-label="İşlem penceresini kapat" title="Pencereyi kapat"><X size={17} /></button>
+            <button className="icon-button repository-dialog-close" type="button" onClick={closeDialog} aria-label={t("closeActionDialog")} title={t("closeDialog")}><X size={17} /></button>
           </header>
 
-          <div className="repository-action-tabs" role="group" aria-label={isBranchDialog ? "Dal işlemi" : "Uzak depo işlemi"}>
+          <div className="repository-action-tabs" role="group" aria-label={isBranchDialog ? t("branchAction") : t("remoteAction")}>
             {isBranchDialog ? (
               <>
-                <button type="button" aria-pressed={dialogMode === "branches"} disabled={busy} onClick={() => changeMode("branches")}><GitBranch size={14} />Yerel dallar<span>{snapshot?.branches.length ?? 0}</span></button>
-                <button type="button" aria-pressed={dialogMode === "createBranch"} disabled={busy} onClick={() => changeMode("createBranch")}><Plus size={14} />Yeni dal</button>
+                <button type="button" aria-pressed={dialogMode === "branches"} disabled={busy} onClick={() => changeMode("branches")}><GitBranch size={14} />{t("localBranches")}<span>{snapshot?.branches.length ?? 0}</span></button>
+                <button type="button" aria-pressed={dialogMode === "createBranch"} disabled={busy} onClick={() => changeMode("createBranch")}><Plus size={14} />{t("newBranch")}</button>
               </>
             ) : networkActions.map((kind) => (
-              <button key={kind} type="button" aria-pressed={dialogMode === kind} disabled={busy || Boolean(networkActionBlockReason(kind, snapshot))} title={networkActionBlockReason(kind, snapshot) ?? networkLabels[kind]} onClick={() => changeMode(kind)}><NetworkIcon kind={kind} size={14} />{networkLabels[kind]}</button>
+              <button key={kind} type="button" aria-pressed={dialogMode === kind} disabled={busy || Boolean(networkActionBlockReason(kind, snapshot, locale))} title={networkActionBlockReason(kind, snapshot, locale) ?? networkLabels[kind]} onClick={() => changeMode(kind)}><NetworkIcon kind={kind} size={14} />{networkLabels[kind]}</button>
             ))}
           </div>
 
           <div className="repository-dialog-main">
             {dialogMode === "branches" && (
               <>
-                <label className="branch-search"><Search size={15} aria-hidden="true" /><input ref={searchRef} value={search} onChange={(event) => setSearch(event.target.value)} disabled={busy} placeholder="Yerel dal ara…" aria-label="Yerel dal ara" spellCheck={false} /></label>
-                <div className="local-branch-list" role="group" aria-label="Yerel dallar">
+                <label className="branch-search"><Search size={15} aria-hidden="true" /><input ref={searchRef} value={search} onChange={(event) => setSearch(event.target.value)} disabled={busy} placeholder={t("searchBranchesPlaceholder")} aria-label={t("searchBranches")} spellCheck={false} /></label>
+                <div className="local-branch-list" role="group" aria-label={t("localBranches")}>
                   {sortedBranches.map((entry) => {
                     const occupied = Boolean(entry.worktreePath) && !entry.current;
                     return (
-                      <button type="button" className={`local-branch-row ${selectedBranch === entry.name ? "selected" : ""}`} key={entry.name} aria-pressed={selectedBranch === entry.name} disabled={busy || occupied} onClick={() => { setSelectedBranch(entry.name); setDialogFeedback(null); }} title={occupied ? `Diğer çalışma ağacında açık: ${entry.worktreePath}` : entry.name}>
+                      <button type="button" className={`local-branch-row ${selectedBranch === entry.name ? "selected" : ""}`} key={entry.name} aria-pressed={selectedBranch === entry.name} disabled={busy || occupied} onClick={() => { setSelectedBranch(entry.name); setDialogFeedback(null); }} title={occupied ? t("occupiedBranchTitle", { path: entry.worktreePath ?? "" }) : entry.name}>
                         <GitBranch size={16} aria-hidden="true" />
-                        <span className="local-branch-copy"><strong>{entry.name}</strong><small>{occupied ? entry.worktreePath : entry.upstream ? shortTrackingRef(entry.upstream) : "Upstream tanımlı değil"}</small></span>
-                        <span className="local-branch-meta"><span className={`local-branch-badge ${entry.current ? "current" : ""}`}>{entry.current ? "Açık" : occupied ? "Diğer çalışma ağacında" : entry.head.slice(0, 8)}</span><TrackingCounts branch={entry} /></span>
+                        <span className="local-branch-copy"><strong>{entry.name}</strong><small>{occupied ? entry.worktreePath : entry.upstream ? shortTrackingRef(entry.upstream) : t("upstreamMissing")}</small></span>
+                        <span className="local-branch-meta"><span className={`local-branch-badge ${entry.current ? "current" : ""}`}>{entry.current ? t("branchCurrent") : occupied ? t("branchOtherWorktree") : entry.head.slice(0, 8)}</span><TrackingCounts branch={entry} /></span>
                         {entry.current && <Check size={13} className="local-branch-current" aria-hidden="true" />}
                       </button>
                     );
                   })}
-                  {!sortedBranches.length && <div className="repository-empty"><GitBranch size={22} /><span>{search ? "Bu aramaya uygun yerel dal yok." : snapshot?.isUnborn ? "İlk commit'ten sonra yerel dallar burada görünür." : "Yerel dal bulunamadı."}</span></div>}
+                  {!sortedBranches.length && <div className="repository-empty"><GitBranch size={22} /><span>{search ? t("noMatchingBranches") : snapshot?.isUnborn ? t("branchesAfterFirstCommit") : t("noLocalBranches")}</span></div>}
                 </div>
-                <p className="repository-field-hint branch-switch-hint">{snapshot?.changes.length ? "Yerel değişikliklerle dal değiştirme denenir. Üzerine yazılacak bir değişiklik varsa Git işlemi durdurur." : "Geçmek istediğiniz yerel dalı seçin."}</p>
+                <p className="repository-field-hint branch-switch-hint">{snapshot?.changes.length ? t("switchWithChangesHint") : t("switchBranchHint")}</p>
               </>
             )}
 
             {dialogMode === "createBranch" && (
               <div className="repository-fields">
-                <div className="repository-origin"><GitFork size={17} /><div><span>Başlangıç noktası</span><strong>{displayedBranch || "HEAD"}{snapshot?.head && <code>{snapshot.head.slice(0, 8)}</code>}</strong></div></div>
-                {!canCreate && <div className="repository-form-message warning" role="status"><AlertCircle size={15} /><span>Yeni dal oluşturmak için önce ilk commit'i oluşturun.</span></div>}
-                <div className="repository-field"><label htmlFor={newBranchId}>Yeni dal adı</label><input ref={branchNameRef} id={newBranchId} value={newBranchName} onChange={(event) => { setNewBranchName(event.target.value); setDialogFeedback(null); }} placeholder="feature/yeni-calisma" disabled={busy || !canCreate} autoComplete="off" spellCheck={false} aria-invalid={Boolean(newNameError)} aria-describedby={newBranchHintId} /><p id={newBranchHintId} className={`repository-field-hint ${newNameError ? "error" : ""}`}>{newNameError ?? "Dal, yukarıdaki HEAD commit'inden oluşturulur."}</p></div>
-                <label className="repository-checkbox"><input type="checkbox" checked={checkoutNewBranch} onChange={(event) => setCheckoutNewBranch(event.target.checked)} disabled={busy || !canCreate} /><span><strong>Oluşturduktan sonra bu dala geç</strong><small>Çakışan yerel değişiklik varsa Git geçişi durdurur.</small></span></label>
+                <div className="repository-origin"><GitFork size={17} /><div><span>{t("branchStartPoint")}</span><strong>{displayedBranch || "HEAD"}{snapshot?.head && <code>{snapshot.head.slice(0, 8)}</code>}</strong></div></div>
+                {!canCreate && <div className="repository-form-message warning" role="status"><AlertCircle size={15} /><span>{t("newBranchFirstCommit")}</span></div>}
+                <div className="repository-field"><label htmlFor={newBranchId}>{t("newBranchName")}</label><input ref={branchNameRef} id={newBranchId} value={newBranchName} onChange={(event) => { setNewBranchName(event.target.value); setDialogFeedback(null); }} placeholder={t("newBranchPlaceholder")} disabled={busy || !canCreate} autoComplete="off" spellCheck={false} aria-invalid={Boolean(newNameError)} aria-describedby={newBranchHintId} /><p id={newBranchHintId} className={`repository-field-hint ${newNameError ? "error" : ""}`}>{newNameError ?? t("branchHeadHint")}</p></div>
+                <label className="repository-checkbox"><input type="checkbox" checked={checkoutNewBranch} onChange={(event) => setCheckoutNewBranch(event.target.checked)} disabled={busy || !canCreate} /><span><strong>{t("checkoutNewBranch")}</strong><small>{t("checkoutChangesHint")}</small></span></label>
               </div>
             )}
 
             {networkMode && (
               <div className="repository-fields">
-                <div className="repository-target-flow" aria-label="İşlem hedefi">
-                  <div><span>{networkMode === "push" ? "YEREL KAYNAK" : "UZAK KAYNAK"}</span><strong>{networkMode === "push" ? pushSource : remoteName ? `${remoteName}${networkMode !== "fetch" && remoteBranch ? `/${remoteBranch}` : ""}` : "Uzak depo seçin"}</strong></div>
+                <div className="repository-target-flow" aria-label={t("actionTarget")}>
+                  <div><span>{networkMode === "push" ? t("localSource") : t("remoteSource")}</span><strong>{networkMode === "push" ? pushSource : remoteName ? `${remoteName}${networkMode !== "fetch" && remoteBranch ? `/${remoteBranch}` : ""}` : t("selectRemote")}</strong></div>
                   <ArrowRight size={18} aria-hidden="true" />
-                  <div><span>{networkMode === "push" ? "UZAK HEDEF" : "YEREL HEDEF"}</span><strong>{networkMode === "push" ? `${remoteName}/${remoteBranch || "…"}` : networkMode === "fetch" ? "İzleme dalları" : branch?.name ?? "Yerel dal yok"}</strong></div>
+                  <div><span>{networkMode === "push" ? t("remoteTarget") : t("localTarget")}</span><strong>{networkMode === "push" ? `${remoteName}/${remoteBranch || "…"}` : networkMode === "fetch" ? t("trackingBranches") : branch?.name ?? t("noLocalBranch")}</strong></div>
                 </div>
                 <div className="repository-remote-fields">
-                  <div className="repository-field"><label htmlFor={remoteId}>Uzak depo</label><select ref={remoteRef} id={remoteId} value={selectedRemote ? remoteName : ""} disabled={busy || !snapshot?.remotes.length} onChange={(event) => { setRemoteName(event.target.value); setDialogFeedback(null); }}><option value="" disabled>Uzak depo seçin</option>{snapshot?.remotes.map((remote) => <option key={remote.name} value={remote.name}>{remote.name}</option>)}</select></div>
-                  {networkMode !== "fetch" && <div className="repository-field"><label htmlFor={remoteBranchId}>Uzak dal</label><input id={remoteBranchId} value={remoteBranch} onChange={(event) => { setRemoteBranch(event.target.value); setDialogFeedback(null); }} placeholder={branch?.name || "main"} disabled={busy} spellCheck={false} autoComplete="off" aria-invalid={Boolean(remoteNameError)} aria-describedby={remoteBranchHintId} /></div>}
+                  <div className="repository-field"><label htmlFor={remoteId}>{t("remote")}</label><select ref={remoteRef} id={remoteId} value={selectedRemote ? remoteName : ""} disabled={busy || !snapshot?.remotes.length} onChange={(event) => { setRemoteName(event.target.value); setDialogFeedback(null); }}><option value="" disabled>{t("selectRemote")}</option>{snapshot?.remotes.map((remote) => <option key={remote.name} value={remote.name}>{remote.name}</option>)}</select></div>
+                  {networkMode !== "fetch" && <div className="repository-field"><label htmlFor={remoteBranchId}>{t("remoteBranch")}</label><input id={remoteBranchId} value={remoteBranch} onChange={(event) => { setRemoteBranch(event.target.value); setDialogFeedback(null); }} placeholder={branch?.name || "main"} disabled={busy} spellCheck={false} autoComplete="off" aria-invalid={Boolean(remoteNameError)} aria-describedby={remoteBranchHintId} /></div>}
                 </div>
-                {selectedRemote && <div className="repository-remote-url"><FolderGit2 size={13} aria-hidden="true" /><span>{networkMode === "push" ? "Push adresi" : "Fetch adresi"}</span><code>{networkMode === "push" ? selectedRemote.pushUrl : selectedRemote.fetchUrl}</code></div>}
-                {networkMode !== "fetch" && <p id={remoteBranchHintId} className={`repository-field-hint ${remoteNameError ? "error" : ""}`}>{remoteNameError ?? `Hedef: refs/heads/${remoteBranch || "…"}. Bu işlem upstream ayarını değiştirmez.`}</p>}
-                {branch && <div className="repository-tracking-summary"><GitBranch size={13} /><span>{branch.upstream ? `Upstream: ${shortTrackingRef(branch.upstream)}` : "Açık dalın upstream'i tanımlı değil"}</span><TrackingCounts branch={branch} /></div>}
-                {networkMode === "pull" && <p className="repository-field-hint">Temiz çalışma ağacı ve dizin gerekir. Yerel ve uzak dal ayrışmışsa Pull durur.</p>}
+                {selectedRemote && <div className="repository-remote-url"><FolderGit2 size={13} aria-hidden="true" /><span>{networkMode === "push" ? t("pushAddress") : t("fetchAddress")}</span><code>{networkMode === "push" ? selectedRemote.pushUrl : selectedRemote.fetchUrl}</code></div>}
+                {networkMode !== "fetch" && <p id={remoteBranchHintId} className={`repository-field-hint ${remoteNameError ? "error" : ""}`}>{remoteNameError ?? t("remoteBranchHint", { branch: remoteBranch || "…" })}</p>}
+                {branch && <div className="repository-tracking-summary"><GitBranch size={13} /><span>{branch.upstream ? t("upstreamLabel", { reference: shortTrackingRef(branch.upstream) }) : t("currentUpstreamMissing")}</span><TrackingCounts branch={branch} /></div>}
+                {networkMode === "pull" && <p className="repository-field-hint">{t("pullCleanHint")}</p>}
                 {networkBlock && <div className="repository-form-message warning" role="status"><AlertCircle size={15} /><span>{networkBlock}</span></div>}
               </div>
             )}
 
-            {dialogFeedback && <div className={`repository-form-message ${dialogFeedback.kind}`} role={dialogFeedback.kind === "error" ? "alert" : "status"}><AlertCircle size={15} /><span>{dialogFeedback.message}</span></div>}
-            {submitting && <div className="repository-form-message progress" role="status"><LoaderCircle className="spin" size={15} /><span>{refreshing ? "Depo durumu yeniden okunuyor…" : activeAction ? repositoryActionProgress(activeAction) : "İşlem başlatılıyor…"}<small>Pencereyi kapatmak işlemi durdurmaz.</small></span></div>}
+            {dialogFeedback && <div className={`repository-form-message ${dialogFeedback.kind}`} role={dialogFeedback.kind === "error" ? "alert" : "status"}><AlertCircle size={15} /><span>{dialogFeedback.messageKey ? t(dialogFeedback.messageKey) : dialogFeedback.localizedMessage?.[locale] ?? dialogFeedback.message}</span></div>}
+            {submitting && <div className="repository-form-message progress" role="status"><LoaderCircle className="spin" size={15} /><span>{refreshing ? t("refreshingRepository") : activeAction ? repositoryActionProgress(activeAction, locale) : t("startingAction")}<small>{t("closingDoesNotCancel")}</small></span></div>}
           </div>
 
           <footer className="repository-dialog-footer">
-            <span>{repositoryActionDeadline(networkMode ?? "createBranch")}</span>
-            <button type="button" className="change-action" onClick={closeDialog}>{submitting ? "Pencereyi kapat" : "Kapat"}</button>
-            <button type="submit" className="commit-button repository-execute" disabled={submitDisabled}>{submitting ? <LoaderCircle className="spin" size={14} /> : networkMode ? <NetworkIcon kind={networkMode} size={14} /> : dialogMode === "createBranch" ? <Plus size={14} /> : <GitBranch size={14} />}{submitting ? "İşlem sürüyor…" : submitLabel}</button>
+            <span>{repositoryActionDeadline(networkMode ?? "createBranch", locale)}</span>
+            <button type="button" className="change-action" onClick={closeDialog}>{submitting ? t("closeDialog") : t("close")}</button>
+            <button type="submit" className="commit-button repository-execute" disabled={submitDisabled}>{submitting ? <LoaderCircle className="spin" size={14} /> : networkMode ? <NetworkIcon kind={networkMode} size={14} /> : dialogMode === "createBranch" ? <Plus size={14} /> : <GitBranch size={14} />}{submitting ? t("actionRunning") : submitLabel}</button>
           </footer>
         </form>
       </dialog>
